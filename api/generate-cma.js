@@ -84,13 +84,44 @@ module.exports = async function handler(req, res) {
 }
 
 async function callClaude(anthropic, files, notes) {
-    let prompt = `I need you to create a comprehensive CMA for this property. I've uploaded ${files.length} files.`;
+    // Build content blocks - include actual file data so Claude can read them
+    const contentBlocks = [];
 
-    if (notes) {
-        prompt += `\n\nADDITIONAL CONTEXT FROM AGENT:\n${notes}\n`;
+    for (const file of files) {
+        const mimeType = file.type || 'application/octet-stream';
+
+        if (mimeType.startsWith('image/')) {
+            // Send image files as vision content blocks
+            contentBlocks.push({
+                type: 'image',
+                source: {
+                    type: 'base64',
+                    media_type: mimeType,
+                    data: file.data
+                }
+            });
+        } else if (mimeType === 'application/pdf') {
+            // Send PDF files as document content blocks
+            contentBlocks.push({
+                type: 'document',
+                source: {
+                    type: 'base64',
+                    media_type: 'application/pdf',
+                    data: file.data
+                }
+            });
+        }
+        // Note: Excel/CSV files cannot be sent directly to Claude API;
+        // they are referenced by name in the text prompt below.
     }
 
-    prompt += `
+    let textPrompt = `I need you to create a comprehensive CMA for this property. I've uploaded ${files.length} file(s): ${files.map(f => f.name).join(', ')}.`;
+
+    if (notes) {
+        textPrompt += `\n\nADDITIONAL CONTEXT FROM AGENT:\n${notes}\n`;
+    }
+
+    textPrompt += `
 
 Please complete the following analysis:
 
@@ -151,19 +182,26 @@ Please structure your response as JSON with these sections:
 
 Return ONLY the JSON, no other text.`;
 
+    // Add text prompt as the final content block
+    contentBlocks.push({ type: 'text', text: textPrompt });
+
     const message = await anthropic.messages.create({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         max_tokens: 4096,
         messages: [{
             role: 'user',
-            content: prompt
+            content: contentBlocks
         }]
     });
 
     const responseText = message.content[0].text;
     const jsonText = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-    
-    return JSON.parse(jsonText);
+
+    try {
+        return JSON.parse(jsonText);
+    } catch (parseError) {
+        throw new Error(`Claude returned invalid JSON: ${parseError.message}. Response preview: ${jsonText.substring(0, 300)}`);
+    }
 }
 
 async function generateWordDocument(data) {
