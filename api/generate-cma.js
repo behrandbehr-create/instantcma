@@ -189,7 +189,7 @@ Return ONLY the JSON, no other text.`;
 
     const message = await anthropic.messages.create({
         model: 'claude-sonnet-4-6',
-        max_tokens: 4096,
+        max_tokens: 8096,
         system: systemPrompt,
         messages: [{
             role: 'user',
@@ -198,15 +198,24 @@ Return ONLY the JSON, no other text.`;
     });
 
     const responseText = message.content[0].text;
+    console.log('Claude raw response (first 500 chars):', responseText.substring(0, 500));
+    console.log('Stop reason:', message.stop_reason);
+
+    // If Claude hit the token limit, the JSON will be truncated — fail fast with a clear message
+    if (message.stop_reason === 'max_tokens') {
+        throw new Error('Claude response was truncated (max_tokens limit hit). Try uploading fewer or smaller files.');
+    }
+
     const jsonText = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
 
     try {
         return JSON.parse(jsonText);
     } catch (parseError) {
+        console.log('First parse failed, retrying with reformat prompt. Parse error:', parseError.message);
         // Claude returned plain text instead of JSON — ask it to reformat
         const retryMessage = await anthropic.messages.create({
             model: 'claude-sonnet-4-6',
-            max_tokens: 4096,
+            max_tokens: 8096,
             system: systemPrompt,
             messages: [
                 { role: 'user', content: contentBlocks },
@@ -216,12 +225,13 @@ Return ONLY the JSON, no other text.`;
         });
 
         const retryText = retryMessage.content[0].text;
+        console.log('Claude retry response (first 500 chars):', retryText.substring(0, 500));
         const retryJson = retryText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
 
         try {
             return JSON.parse(retryJson);
         } catch (retryError) {
-            throw new Error(`Claude did not return valid JSON after two attempts. Last response: ${retryJson.substring(0, 300)}`);
+            throw new Error(`Claude did not return valid JSON after two attempts. Last response: ${retryJson.substring(0, 500)}`);
         }
     }
 }
