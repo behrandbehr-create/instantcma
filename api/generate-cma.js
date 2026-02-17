@@ -84,13 +84,44 @@ module.exports = async function handler(req, res) {
 }
 
 async function callClaude(anthropic, files, notes) {
-    let prompt = `I need you to create a comprehensive CMA for this property. I've uploaded ${files.length} files.`;
+    // Build content blocks - include actual file data so Claude can read them
+    const contentBlocks = [];
 
-    if (notes) {
-        prompt += `\n\nADDITIONAL CONTEXT FROM AGENT:\n${notes}\n`;
+    for (const file of files) {
+        const mimeType = file.type || 'application/octet-stream';
+
+        if (mimeType.startsWith('image/')) {
+            // Send image files as vision content blocks
+            contentBlocks.push({
+                type: 'image',
+                source: {
+                    type: 'base64',
+                    media_type: mimeType,
+                    data: file.data
+                }
+            });
+        } else if (mimeType === 'application/pdf') {
+            // Send PDF files as document content blocks
+            contentBlocks.push({
+                type: 'document',
+                source: {
+                    type: 'base64',
+                    media_type: 'application/pdf',
+                    data: file.data
+                }
+            });
+        }
+        // Note: Excel/CSV files cannot be sent directly to Claude API;
+        // they are referenced by name in the text prompt below.
     }
 
-    prompt += `
+    let textPrompt = `I need you to create a comprehensive CMA for this property. I've uploaded ${files.length} file(s): ${files.map(f => f.name).join(', ')}.`;
+
+    if (notes) {
+        textPrompt += `\n\nADDITIONAL CONTEXT FROM AGENT:\n${notes}\n`;
+    }
+
+    textPrompt += `
 
 Please complete the following analysis:
 
@@ -151,19 +182,48 @@ Please structure your response as JSON with these sections:
 
 Return ONLY the JSON, no other text.`;
 
+    // Add text prompt as the final content block
+    contentBlocks.push({ type: 'text', text: textPrompt });
+
+    const systemPrompt = `You are a real estate CMA analysis assistant. You MUST always respond with valid JSON only — no explanations, no apologies, no markdown, no plain text. If files are unreadable or data is incomplete, still return the full JSON structure with your best estimates and empty strings/zeros for unknown fields. Never say you cannot read a file; just use the data you can extract.`;
+
     const message = await anthropic.messages.create({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         max_tokens: 4096,
+        system: systemPrompt,
         messages: [{
             role: 'user',
-            content: prompt
+            content: contentBlocks
         }]
     });
 
     const responseText = message.content[0].text;
     const jsonText = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-    
-    return JSON.parse(jsonText);
+
+    try {
+        return JSON.parse(jsonText);
+    } catch (parseError) {
+        // Claude returned plain text instead of JSON — ask it to reformat
+        const retryMessage = await anthropic.messages.create({
+            model: 'claude-sonnet-4-6',
+            max_tokens: 4096,
+            system: systemPrompt,
+            messages: [
+                { role: 'user', content: contentBlocks },
+                { role: 'assistant', content: responseText },
+                { role: 'user', content: 'You must return ONLY valid JSON. No explanatory text. Take whatever analysis you just did and format it strictly as the JSON structure from the original instructions. Start your response with { and end with }.' }
+            ]
+        });
+
+        const retryText = retryMessage.content[0].text;
+        const retryJson = retryText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+
+        try {
+            return JSON.parse(retryJson);
+        } catch (retryError) {
+            throw new Error(`Claude did not return valid JSON after two attempts. Last response: ${retryJson.substring(0, 300)}`);
+        }
+    }
 }
 
 async function generateWordDocument(data) {
