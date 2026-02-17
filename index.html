@@ -1,0 +1,898 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>InstantCMA — Professional CMAs in Minutes</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --ink: #0c1220;
+            --gold: #c9a227;
+            --gold-light: #e8d48b;
+            --sand: #f7f4ee;
+            --stone: #d6d0c4;
+            --slate: #5a6272;
+            --white: #ffffff;
+            --green: #2d8a56;
+            --red: #c0392b;
+            --radius: 10px;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'DM Sans', sans-serif;
+            background: var(--sand);
+            color: var(--ink);
+            line-height: 1.6;
+            min-height: 100vh;
+        }
+
+        /* ── NAV ── */
+        nav {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 1rem 2.5rem;
+            background: var(--ink);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .logo {
+            font-family: 'DM Serif Display', serif;
+            font-size: 1.4rem;
+            color: var(--white);
+            letter-spacing: -0.02em;
+        }
+        .logo span { color: var(--gold); }
+        .nav-cta {
+            background: var(--gold);
+            color: var(--ink);
+            padding: 0.6rem 1.5rem;
+            border-radius: 6px;
+            text-decoration: none;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+        .nav-cta:hover {
+            background: var(--gold-light);
+            transform: translateY(-1px);
+        }
+
+        /* ── HERO ── */
+        .hero {
+            background: linear-gradient(135deg, var(--ink) 0%, #1a2332 100%);
+            color: var(--white);
+            padding: 5rem 2rem 4rem;
+            text-align: center;
+        }
+        .hero h1 {
+            font-family: 'DM Serif Display', serif;
+            font-size: 3.5rem;
+            line-height: 1.1;
+            margin-bottom: 1.5rem;
+            letter-spacing: -0.02em;
+        }
+        .hero h1 em {
+            color: var(--gold);
+            font-style: italic;
+        }
+        .hero p {
+            font-size: 1.3rem;
+            max-width: 700px;
+            margin: 0 auto 2rem;
+            opacity: 0.9;
+            font-weight: 300;
+        }
+        .hero-cta {
+            background: var(--gold);
+            color: var(--ink);
+            padding: 1rem 2.5rem;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 1.1rem;
+            display: inline-block;
+            transition: all 0.2s;
+        }
+        .hero-cta:hover {
+            background: var(--gold-light);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(201,162,39,0.3);
+        }
+
+        /* ── HOW IT WORKS ── */
+        .how-it-works {
+            padding: 4rem 2rem;
+            background: var(--white);
+        }
+        .steps {
+            max-width: 1000px;
+            margin: 3rem auto;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 2rem;
+        }
+        .step {
+            text-align: center;
+            padding: 1.5rem;
+        }
+        .step-number {
+            width: 60px;
+            height: 60px;
+            background: var(--gold);
+            color: var(--white);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.8rem;
+            font-weight: 700;
+            margin: 0 auto 1rem;
+        }
+        .step h3 {
+            font-size: 1.2rem;
+            margin-bottom: 0.5rem;
+            color: var(--ink);
+        }
+        .step p {
+            color: var(--slate);
+            font-size: 0.95rem;
+        }
+
+        /* ── APP CONTAINER ── */
+        .app-container {
+            max-width: 700px;
+            margin: 3rem auto;
+            padding: 0 2rem;
+        }
+
+        .app-section {
+            background: var(--white);
+            border-radius: var(--radius);
+            padding: 2.5rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 4px 12px rgba(12,18,32,0.08);
+        }
+
+        .section-number {
+            display: inline-block;
+            width: 32px;
+            height: 32px;
+            background: var(--gold);
+            color: var(--white);
+            border-radius: 50%;
+            text-align: center;
+            line-height: 32px;
+            font-weight: 700;
+            margin-right: 0.5rem;
+        }
+
+        .app-section h2 {
+            font-family: 'DM Serif Display', serif;
+            font-size: 1.8rem;
+            margin-bottom: 1rem;
+            color: var(--ink);
+        }
+
+        /* ── PRICING CHOICE ── */
+        .pricing-choice {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+            margin: 1.5rem 0;
+        }
+        .pricing-option {
+            border: 2px solid var(--stone);
+            border-radius: var(--radius);
+            padding: 1.5rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            position: relative;
+        }
+        .pricing-option:hover {
+            border-color: var(--gold);
+            transform: translateY(-2px);
+        }
+        .pricing-option.selected {
+            border-color: var(--gold);
+            background: linear-gradient(135deg, rgba(201,162,39,0.05) 0%, rgba(232,212,139,0.1) 100%);
+        }
+        .pricing-option.selected::after {
+            content: '✓';
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: var(--gold);
+            color: var(--white);
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+        }
+        .pricing-option h3 {
+            font-size: 1.2rem;
+            margin-bottom: 0.5rem;
+            color: var(--ink);
+        }
+        .pricing-price {
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--gold);
+            margin: 0.5rem 0;
+        }
+        .pricing-option ul {
+            list-style: none;
+            margin-top: 1rem;
+            font-size: 0.9rem;
+            color: var(--slate);
+        }
+        .pricing-option li {
+            margin: 0.3rem 0;
+            padding-left: 1.2rem;
+            position: relative;
+        }
+        .pricing-option li::before {
+            content: '✓';
+            position: absolute;
+            left: 0;
+            color: var(--green);
+            font-weight: 700;
+        }
+
+        /* ── API KEY INPUT ── */
+        .api-input-group {
+            margin: 1.5rem 0;
+        }
+        .api-input-group label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            color: var(--ink);
+        }
+        .api-input {
+            width: 100%;
+            padding: 0.9rem;
+            border: 2px solid var(--stone);
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+            transition: border-color 0.2s;
+        }
+        .api-input:focus {
+            outline: none;
+            border-color: var(--gold);
+        }
+        .help-text {
+            background: linear-gradient(135deg, #e6f3ff 0%, #cce5ff 100%);
+            padding: 1rem;
+            border-radius: 6px;
+            margin: 1rem 0;
+            font-size: 0.9rem;
+            border-left: 4px solid #3b82f6;
+        }
+        .help-text a {
+            color: #2563eb;
+            font-weight: 600;
+            text-decoration: none;
+        }
+        .help-text a:hover {
+            text-decoration: underline;
+        }
+
+        /* ── FILE UPLOAD ── */
+        .upload-zone {
+            border: 3px dashed var(--stone);
+            border-radius: var(--radius);
+            padding: 3rem 2rem;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            background: var(--sand);
+        }
+        .upload-zone:hover {
+            border-color: var(--gold);
+            background: rgba(201,162,39,0.05);
+        }
+        .upload-zone.dragover {
+            border-color: var(--gold);
+            background: rgba(201,162,39,0.1);
+        }
+        .upload-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+        }
+        .upload-zone p {
+            color: var(--slate);
+            margin: 0.5rem 0;
+        }
+        .upload-zone .file-types {
+            font-size: 0.85rem;
+            color: var(--slate);
+            margin-top: 0.5rem;
+        }
+        .file-list {
+            margin-top: 1.5rem;
+        }
+        .file-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.8rem;
+            background: var(--sand);
+            border-radius: 6px;
+            margin: 0.5rem 0;
+        }
+        .file-item-info {
+            display: flex;
+            align-items: center;
+            gap: 0.8rem;
+        }
+        .file-icon {
+            font-size: 1.5rem;
+        }
+        .file-remove {
+            color: var(--red);
+            cursor: pointer;
+            font-weight: 600;
+            padding: 0.3rem 0.8rem;
+            border-radius: 4px;
+            transition: background 0.2s;
+        }
+        .file-remove:hover {
+            background: rgba(192,57,43,0.1);
+        }
+
+        /* ── NOTES INPUT ── */
+        .notes-input {
+            width: 100%;
+            min-height: 100px;
+            padding: 0.9rem;
+            border: 2px solid var(--stone);
+            border-radius: 6px;
+            font-family: 'DM Sans', sans-serif;
+            font-size: 0.95rem;
+            resize: vertical;
+            margin-top: 0.5rem;
+        }
+        .notes-input:focus {
+            outline: none;
+            border-color: var(--gold);
+        }
+
+        /* ── BUTTONS ── */
+        .btn {
+            display: inline-block;
+            padding: 1rem 2rem;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 1rem;
+            cursor: pointer;
+            border: none;
+            transition: all 0.2s;
+            text-decoration: none;
+        }
+        .btn-primary {
+            background: var(--gold);
+            color: var(--ink);
+            width: 100%;
+        }
+        .btn-primary:hover:not(:disabled) {
+            background: var(--gold-light);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(201,162,39,0.3);
+        }
+        .btn-primary:disabled {
+            background: var(--stone);
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+        .btn-secondary {
+            background: var(--ink);
+            color: var(--white);
+            width: 100%;
+        }
+        .btn-secondary:hover {
+            background: #1a2332;
+        }
+
+        /* ── LOADING STATE ── */
+        .loading-container {
+            text-align: center;
+            padding: 3rem 2rem;
+        }
+        .spinner {
+            width: 60px;
+            height: 60px;
+            border: 4px solid var(--stone);
+            border-top: 4px solid var(--gold);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 1.5rem;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .loading-container h3 {
+            font-family: 'DM Serif Display', serif;
+            font-size: 1.6rem;
+            margin-bottom: 0.5rem;
+        }
+        .loading-container p {
+            color: var(--slate);
+            margin: 0.5rem 0;
+        }
+
+        /* ── SUCCESS STATE ── */
+        .success-container {
+            text-align: center;
+            padding: 2rem;
+            background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
+            border-radius: var(--radius);
+            border-left: 6px solid var(--green);
+        }
+        .success-icon {
+            font-size: 4rem;
+            margin-bottom: 1rem;
+        }
+        .success-container h3 {
+            font-family: 'DM Serif Display', serif;
+            font-size: 1.8rem;
+            color: var(--ink);
+            margin-bottom: 1rem;
+        }
+
+        /* ── ERROR STATE ── */
+        .error-container {
+            background: #fee2e2;
+            padding: 1.5rem;
+            border-radius: var(--radius);
+            border-left: 4px solid var(--red);
+            margin: 1.5rem 0;
+        }
+
+        /* ── FOOTER ── */
+        footer {
+            background: var(--ink);
+            color: var(--white);
+            text-align: center;
+            padding: 2rem;
+            margin-top: 4rem;
+        }
+        footer p {
+            opacity: 0.7;
+            font-size: 0.9rem;
+        }
+
+        /* ── UTILITY ── */
+        .hidden { display: none !important; }
+        .mt-2 { margin-top: 2rem; }
+
+        @media (max-width: 768px) {
+            .hero h1 {
+                font-size: 2.5rem;
+            }
+            .pricing-choice {
+                grid-template-columns: 1fr;
+            }
+            .steps {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <nav>
+        <div class="logo">Instant<span>CMA</span></div>
+        <a href="#app-start" class="nav-cta">Get Started</a>
+    </nav>
+
+    <div class="hero">
+        <h1>Professional CMAs <em>in minutes, not hours.</em></h1>
+        <p>Upload your MLS exports. Our AI analyzes comps, checks concessions, weights properties, and delivers a polished report — ready for your client.</p>
+        <a href="#app-start" class="hero-cta">Generate a CMA →</a>
+    </div>
+
+    <div class="how-it-works">
+        <div class="steps">
+            <div class="step">
+                <div class="step-number">1</div>
+                <h3>Choose Your Plan</h3>
+                <p>Free with your API key or pay-per-CMA.</p>
+            </div>
+            <div class="step">
+                <div class="step-number">2</div>
+                <h3>Upload MLS Files</h3>
+                <p>Subject property, One Line CMA, Agent Condensed.</p>
+            </div>
+            <div class="step">
+                <div class="step-number">3</div>
+                <h3>AI Analyzes</h3>
+                <p>Comps, concessions, pricing — verified.</p>
+            </div>
+            <div class="step">
+                <div class="step-number">4</div>
+                <h3>Download Report</h3>
+                <p>Professional CMA ready for clients.</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="app-container" id="app-start">
+        <!-- STEP 1: Choose Plan -->
+        <div class="app-section" id="step-pricing">
+            <h2><span class="section-number">1</span> Choose Your Plan</h2>
+            
+            <div class="pricing-choice">
+                <div class="pricing-option" id="option-free" onclick="selectPlan('free')">
+                    <h3>Free Trial</h3>
+                    <div class="pricing-price">$0</div>
+                    <p style="color: var(--slate); font-size: 0.9rem;">Use your Claude API key</p>
+                    <ul>
+                        <li>Your own API key</li>
+                        <li>Full features</li>
+                        <li>No credit card needed</li>
+                        <li>~$0.30 per CMA</li>
+                    </ul>
+                </div>
+
+                <div class="pricing-option" id="option-paid" onclick="selectPlan('paid')">
+                    <h3>Pay Per CMA</h3>
+                    <div class="pricing-price">$9.99</div>
+                    <p style="color: var(--slate); font-size: 0.9rem;">No API key required</p>
+                    <ul>
+                        <li>Instant processing</li>
+                        <li>No setup required</li>
+                        <li>Professional .docx</li>
+                        <li>Priority support</li>
+                    </ul>
+                </div>
+            </div>
+
+            <button class="btn btn-primary mt-2" id="btn-continue-pricing" disabled onclick="continueToPlan()">
+                Select a Plan to Continue
+            </button>
+        </div>
+
+        <!-- STEP 2: API Key (Free Only) -->
+        <div class="app-section hidden" id="step-api-key">
+            <h2><span class="section-number">2</span> Connect to Claude AI</h2>
+            <p style="color: var(--slate); margin-bottom: 1rem;">Your API key stays in your browser — it's never stored on any server.</p>
+
+            <div class="api-input-group">
+                <label for="api-key-input">Claude API Key</label>
+                <input type="password" id="api-key-input" class="api-input" placeholder="sk-ant-api03-...">
+            </div>
+
+            <div class="help-text">
+                <strong>Don't have a key?</strong> Create a free Anthropic account at <a href="https://console.anthropic.com/" target="_blank">console.anthropic.com</a>. New accounts get $5 in credits — enough for roughly 10 CMAs.
+            </div>
+
+            <button class="btn btn-primary mt-2" onclick="continueToUpload()">Continue</button>
+        </div>
+
+        <!-- STEP 2/3: Upload Files -->
+        <div class="app-section hidden" id="step-upload">
+            <h2><span class="section-number" id="upload-step-number">3</span> Upload Your MLS Files</h2>
+            <p style="color: var(--slate); margin-bottom: 1.5rem;">Drop in the subject property data, One Line CMA, and Agent Condensed PDF.</p>
+
+            <input type="file" id="file-input" multiple accept=".pdf,.xlsx,.xls,.csv,.png,.jpg,.jpeg,.doc,.docx" style="display: none;">
+            
+            <div class="upload-zone" id="upload-zone" onclick="document.getElementById('file-input').click()">
+                <div class="upload-icon">📂</div>
+                <p style="font-weight: 600; font-size: 1.1rem;">Drag files here or browse your computer</p>
+                <p class="file-types">PDF, images, Excel, CSV — up to 20 MB each</p>
+            </div>
+
+            <div class="file-list" id="file-list"></div>
+
+            <div class="help-text" style="margin-top: 1.5rem;">
+                <strong>Best results with these 3 files:</strong><br>
+                ① Subject property MLS printout or tax records<br>
+                ② "One Line CMA" export (includes agent contacts)<br>
+                ③ "Agent Condensed" PDF (includes descriptions & concessions)
+            </div>
+
+            <div class="api-input-group" style="margin-top: 1.5rem;">
+                <label for="notes-input">Additional Notes (optional)</label>
+                <textarea id="notes-input" class="notes-input" placeholder="Any special instructions or context for the analysis..."></textarea>
+            </div>
+
+            <button class="btn btn-primary mt-2" id="btn-generate" disabled onclick="generateCMA()">
+                Generate CMA Report
+            </button>
+        </div>
+
+        <!-- STEP 4: Loading -->
+        <div class="app-section hidden" id="step-loading">
+            <div class="loading-container">
+                <div class="spinner"></div>
+                <h3>Analyzing Your Data…</h3>
+                <p id="loading-status">Claude is reading your files, verifying data, and building your report.</p>
+            </div>
+        </div>
+
+        <!-- STEP 5: Success -->
+        <div class="app-section hidden" id="step-success">
+            <div class="success-container">
+                <div class="success-icon">✓</div>
+                <h3>Your CMA Report is Ready</h3>
+                <button class="btn btn-primary mt-2" id="btn-download">↓ Download Professional CMA (.docx)</button>
+            </div>
+            <button class="btn btn-secondary mt-2" onclick="resetApp()">Generate Another CMA</button>
+        </div>
+
+        <!-- ERROR -->
+        <div class="error-container hidden" id="error-container">
+            <strong>Error:</strong> <span id="error-message"></span>
+            <button class="btn btn-secondary mt-2" onclick="resetApp()">Try Again</button>
+        </div>
+    </div>
+
+    <footer>
+        <p>© 2026 InstantCMA — AI-powered market analysis for real estate professionals.</p>
+    </footer>
+
+    <script>
+        let selectedPlanType = null;
+        let apiKey = null;
+        let uploadedFiles = [];
+        let generatedDocBlob = null;
+
+        // API endpoint - UPDATE FOR PRODUCTION
+        const API_URL = '/api/generate-cma';
+
+        // Plan Selection
+        function selectPlan(plan) {
+            selectedPlanType = plan;
+            
+            document.getElementById('option-free').classList.remove('selected');
+            document.getElementById('option-paid').classList.remove('selected');
+            
+            if (plan === 'free') {
+                document.getElementById('option-free').classList.add('selected');
+            } else {
+                document.getElementById('option-paid').classList.add('selected');
+            }
+            
+            document.getElementById('btn-continue-pricing').disabled = false;
+            document.getElementById('btn-continue-pricing').textContent = 
+                plan === 'free' ? 'Continue with Free Trial' : 'Continue with Pay-Per-CMA';
+        }
+
+        function continueToPlan() {
+            document.getElementById('step-pricing').classList.add('hidden');
+            
+            if (selectedPlanType === 'free') {
+                document.getElementById('step-api-key').classList.remove('hidden');
+            } else {
+                document.getElementById('upload-step-number').textContent = '2';
+                document.getElementById('step-upload').classList.remove('hidden');
+            }
+        }
+
+        function continueToUpload() {
+            const keyInput = document.getElementById('api-key-input').value.trim();
+            
+            if (!keyInput) {
+                alert('Please enter your Claude API key');
+                return;
+            }
+            
+            if (!keyInput.startsWith('sk-ant-')) {
+                alert('Invalid API key format. Should start with "sk-ant-"');
+                return;
+            }
+            
+            apiKey = keyInput;
+            localStorage.setItem('claudeApiKey', apiKey);
+            
+            document.getElementById('step-api-key').classList.add('hidden');
+            document.getElementById('step-upload').classList.remove('hidden');
+        }
+
+        // File Upload
+        const uploadZone = document.getElementById('upload-zone');
+        const fileInput = document.getElementById('file-input');
+        const fileList = document.getElementById('file-list');
+
+        uploadZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadZone.classList.add('dragover');
+        });
+
+        uploadZone.addEventListener('dragleave', () => {
+            uploadZone.classList.remove('dragover');
+        });
+
+        uploadZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadZone.classList.remove('dragover');
+            handleFiles(e.dataTransfer.files);
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            handleFiles(e.target.files);
+        });
+
+        function handleFiles(files) {
+            uploadedFiles = [...uploadedFiles, ...Array.from(files)];
+            renderFileList();
+            updateGenerateButton();
+        }
+
+        function renderFileList() {
+            if (uploadedFiles.length === 0) {
+                fileList.innerHTML = '';
+                return;
+            }
+
+            fileList.innerHTML = uploadedFiles.map((file, index) => `
+                <div class="file-item">
+                    <div class="file-item-info">
+                        <div class="file-icon">📄</div>
+                        <div>
+                            <div style="font-weight: 600;">${file.name}</div>
+                            <div style="font-size: 0.85rem; color: var(--slate);">
+                                ${(file.size / 1024).toFixed(1)} KB
+                            </div>
+                        </div>
+                    </div>
+                    <div class="file-remove" onclick="removeFile(${index})">✕</div>
+                </div>
+            `).join('');
+        }
+
+        function removeFile(index) {
+            uploadedFiles.splice(index, 1);
+            renderFileList();
+            updateGenerateButton();
+        }
+
+        function updateGenerateButton() {
+            document.getElementById('btn-generate').disabled = uploadedFiles.length === 0;
+        }
+
+        // Generate CMA
+        async function generateCMA() {
+            document.getElementById('step-upload').classList.add('hidden');
+            document.getElementById('step-loading').classList.remove('hidden');
+
+            try {
+                // Create FormData
+                const formData = new FormData();
+                
+                // For free tier, use user's API key. For paid, server uses its own key
+                if (selectedPlanType === 'free') {
+                    formData.append('apiKey', apiKey);
+                } else {
+                    formData.append('apiKey', 'USE_SERVER_KEY'); // Server recognizes this
+                }
+
+                // Add files
+                uploadedFiles.forEach(file => {
+                    formData.append('files', file);
+                });
+
+                // Add notes if provided
+                const notes = document.getElementById('notes-input').value.trim();
+                if (notes) {
+                    formData.append('notes', notes);
+                }
+
+                // Update status
+                updateLoadingStatus('Preparing files…');
+                await sleep(800);
+
+                updateLoadingStatus('Uploading to Claude AI…');
+                await sleep(600);
+
+                // Call API
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                updateLoadingStatus('Analyzing property data…');
+                await sleep(1000);
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Server error');
+                }
+
+                updateLoadingStatus('Generating professional report…');
+                
+                // Get .docx blob
+                generatedDocBlob = await response.blob();
+
+                updateLoadingStatus('Complete!');
+                await sleep(500);
+
+                showSuccess();
+
+            } catch (error) {
+                console.error('Error:', error);
+                showError(error.message);
+            }
+        }
+
+        function updateLoadingStatus(message) {
+            document.getElementById('loading-status').textContent = message;
+        }
+
+        function sleep(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
+        function showSuccess() {
+            document.getElementById('step-loading').classList.add('hidden');
+            document.getElementById('step-success').classList.remove('hidden');
+
+            // Setup download button
+            document.getElementById('btn-download').onclick = () => {
+                const url = URL.createObjectURL(generatedDocBlob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'CMA_Report.docx';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            };
+        }
+
+        function showError(message) {
+            document.getElementById('step-loading').classList.add('hidden');
+            document.getElementById('error-container').classList.remove('hidden');
+            document.getElementById('error-message').textContent = message;
+        }
+
+        function resetApp() {
+            // Reset state
+            selectedPlanType = null;
+            apiKey = null;
+            uploadedFiles = [];
+            generatedDocBlob = null;
+
+            // Clear inputs
+            document.getElementById('api-key-input').value = '';
+            document.getElementById('notes-input').value = '';
+            document.getElementById('file-list').innerHTML = '';
+
+            // Reset UI
+            document.getElementById('option-free').classList.remove('selected');
+            document.getElementById('option-paid').classList.remove('selected');
+            document.getElementById('btn-continue-pricing').disabled = true;
+
+            // Hide all sections
+            document.getElementById('step-api-key').classList.add('hidden');
+            document.getElementById('step-upload').classList.add('hidden');
+            document.getElementById('step-loading').classList.add('hidden');
+            document.getElementById('step-success').classList.add('hidden');
+            document.getElementById('error-container').classList.add('hidden');
+
+            // Show pricing
+            document.getElementById('step-pricing').classList.remove('hidden');
+
+            // Scroll to top
+            document.getElementById('app-start').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        // Load saved API key
+        window.addEventListener('load', () => {
+            const savedKey = localStorage.getItem('claudeApiKey');
+            if (savedKey) {
+                document.getElementById('api-key-input').value = savedKey;
+            }
+        });
+    </script>
+</body>
+</html>
