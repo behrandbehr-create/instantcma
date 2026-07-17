@@ -59,6 +59,30 @@ const WM = {
 };
 
 /* =============== widgets =============== */
+/* Pointer-captured drag: no text selection, keeps tracking outside the element,
+   works with touch, and releases cleanly. */
+function capDrag(el, onMove, onDown, onUp) {
+  el.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    try { el.setPointerCapture(e.pointerId); } catch (err) {}
+    el.classList.add('dragging');
+    if (onDown) onDown(e);
+    onMove(e);
+    const mv = (ev) => { ev.preventDefault(); onMove(ev); };
+    const up = (ev) => {
+      el.classList.remove('dragging');
+      el.removeEventListener('pointermove', mv);
+      el.removeEventListener('pointerup', up);
+      el.removeEventListener('pointercancel', up);
+      try { el.releasePointerCapture(ev.pointerId); } catch (err) {}
+      if (onUp) onUp(ev);
+    };
+    el.addEventListener('pointermove', mv);
+    el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', up);
+  });
+}
+
 function makeHSlider(el, get, set, fmt) {
   const thumb = el.querySelector('.thumb'), fill = el.querySelector('.fill');
   const render = () => {
@@ -67,16 +91,14 @@ function makeHSlider(el, get, set, fmt) {
     if (fill) fill.style.width = (f * 100).toFixed(1) + '%';
     if (fmt) el.title = fmt(f);
   };
-  const from = (e) => {
+  capDrag(el, (e) => {
     const r = el.getBoundingClientRect();
     set(clamp((e.clientX - r.left) / r.width, 0, 1)); render();
-  };
-  el.addEventListener('pointerdown', (e) => {
-    from(e);
-    const mv = (ev) => from(ev);
-    const up = () => { removeEventListener('pointermove', mv); removeEventListener('pointerup', up); };
-    addEventListener('pointermove', mv); addEventListener('pointerup', up);
   });
+  el.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    set(clamp(get() + (e.deltaY < 0 ? 0.05 : -0.05), 0, 1)); render();
+  }, { passive: false });
   render();
   return { render };
 }
@@ -87,16 +109,14 @@ function makeVSlider(el, get, set) {
     const f = clamp(get(), 0, 1);
     thumb.style.top = `calc(${((1 - f) * 100).toFixed(1)}% - ${((1 - f) * 12).toFixed(0)}px)`;
   };
-  const from = (e) => {
+  capDrag(el, (e) => {
     const r = el.getBoundingClientRect();
     set(clamp(1 - (e.clientY - r.top) / r.height, 0, 1)); render();
-  };
-  el.addEventListener('pointerdown', (e) => {
-    from(e);
-    const mv = (ev) => from(ev);
-    const up = () => { removeEventListener('pointermove', mv); removeEventListener('pointerup', up); };
-    addEventListener('pointermove', mv); addEventListener('pointerup', up);
   });
+  el.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    set(clamp(get() + (e.deltaY < 0 ? 0.05 : -0.05), 0, 1)); render();
+  }, { passive: false });
   render();
   return { render };
 }
@@ -112,16 +132,21 @@ function makeKnob(wrap, opts) {
     ptr.style.transform = `rotate(${(-135 + f * 270).toFixed(1)}deg) translateY(3px)`;
     kval.textContent = opts.fmt ? opts.fmt(opts.get()) : opts.get().toFixed(2);
   };
-  knob.addEventListener('pointerdown', (e) => {
-    const startY = e.clientY, startV = opts.get();
-    const mv = (ev) => {
-      let v = startV + (startY - ev.clientY) / 130 * (opts.max - opts.min);
-      if (opts.step) v = Math.round(v / opts.step) * opts.step;
-      opts.set(clamp(v, opts.min, opts.max)); render();
-    };
-    const up = () => { removeEventListener('pointermove', mv); removeEventListener('pointerup', up); Deck.saveParams(); };
-    addEventListener('pointermove', mv); addEventListener('pointerup', up);
-  });
+  let startX = 0, startY = 0, startV = 0;
+  capDrag(knob, (e) => {
+    // drag up OR right to increase — whichever way the hand wants to move
+    const d = (startY - e.clientY) + (e.clientX - startX);
+    let v = startV + d / 160 * (opts.max - opts.min);
+    if (opts.step) v = Math.round(v / opts.step) * opts.step;
+    opts.set(clamp(v, opts.min, opts.max)); render();
+  }, (e) => { startX = e.clientX; startY = e.clientY; startV = opts.get(); },
+     () => Deck.saveParams());
+  knob.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const stp = opts.step || (opts.max - opts.min) / 40;
+    opts.set(clamp(opts.get() + (e.deltaY < 0 ? stp : -stp), opts.min, opts.max));
+    render(); Deck.saveParams();
+  }, { passive: false });
   knob.addEventListener('dblclick', () => { opts.set(opts.def !== undefined ? opts.def : (opts.min + opts.max) / 2); render(); Deck.saveParams(); });
   render();
   return { render };
@@ -163,6 +188,17 @@ const Deck = {
     if (CFG.crt) { document.body.classList.add('crt'); $('#viz-crt').classList.add('on'); }
     if (CFG.pal) Viz.pal = CFG.pal % Viz.pals.length;
     $('#viz-pal').addEventListener('click', () => this.cyclePal());
+    // data-source selector
+    if (CFG.src) Feeds.srcIdx = CFG.src % Feeds.srcModes.length;
+    $('#src-name').textContent = Feeds.srcModes[Feeds.srcIdx];
+    const src = (dir) => {
+      $('#src-name').textContent = Feeds.cycleSrc(dir);
+      Store.save({ src: Feeds.srcIdx });
+      this.toast('SOURCE: ' + Feeds.srcModes[Feeds.srcIdx]);
+    };
+    $('#src-prev').addEventListener('click', () => src(-1));
+    $('#src-next').addEventListener('click', () => src(1));
+    $('#viz-src-lcd').addEventListener('wheel', (e) => { e.preventDefault(); src(e.deltaY > 0 ? 1 : -1); }, { passive: false });
   },
   cyclePal() {
     const name = Viz.cyclePal();
@@ -376,6 +412,8 @@ const Main = {
     $('#tp-eject').addEventListener('click', () => WM.toggle('win-skins'));
     this.mark('tp-play');
     // toggles
+    $('#tg-snd').addEventListener('click', () => $('#tg-snd').classList.toggle('on', Sound.toggle()));
+    $('#tg-tape').addEventListener('click', () => $('#tg-tape').classList.toggle('on', WM.toggle('win-tape')));
     $('#tg-eq').addEventListener('click', () => WM.toggle('win-eq'));
     $('#tg-pl').addEventListener('click', () => WM.toggle('win-pl'));
     $('#tg-shuffle').addEventListener('click', () => { Viz.auto = !Viz.auto; $('#tg-shuffle').classList.toggle('on', Viz.auto); $('#viz-auto').classList.toggle('on', Viz.auto); });
@@ -440,6 +478,44 @@ const Main = {
       }
       g.stroke();
     }
+  },
+};
+
+/* =============== trade tape (aggr-style) =============== */
+const TapeUI = {
+  count: 0, _rate: [],
+  init() {
+    this.host = $('#tape-list');
+    Feeds.addListener('trade', (tr) => this.add(tr));
+    Feeds.addListener('block', (b) => this.addBlock(b));
+  },
+  add(tr) {
+    this._rate.push(performance.now());
+    if (!WM.visible('win-tape')) return;
+    if (tr.size < 0.001) return; // only sub-1k-sat dust is dropped
+    const r = document.createElement('div');
+    const cls = tr.size >= 10 ? ' mega' : tr.size >= 1 ? ' big' : '';
+    r.className = 'tr ' + (tr.buy ? 'buy' : 'sell') + cls;
+    const w = clamp(Math.log10(1 + tr.size * 10) / 2.4, 0.03, 1) * 100;
+    r.innerHTML = `<span class="bg" style="width:${w.toFixed(1)}%"></span>` +
+      `<span class="side">${tr.buy ? 'BUY' : 'SELL'}</span>` +
+      `<span class="sz">${tr.size >= 100 ? tr.size.toFixed(0) : tr.size >= 1 ? tr.size.toFixed(2) : tr.size.toFixed(3)} ₿</span>` +
+      `<span class="px2">$${Math.round(tr.price).toLocaleString()}</span>`;
+    this.host.prepend(r);
+    while (this.host.children.length > 120) this.host.lastChild.remove();
+  },
+  addBlock(b) {
+    if (!WM.visible('win-tape')) return;
+    const r = document.createElement('div');
+    r.className = 'blkrow';
+    r.textContent = `━━ BLOCK ${b.height} · ${b.miner.toUpperCase()} ━━`;
+    this.host.prepend(r);
+  },
+  tick() {
+    const now = performance.now();
+    this._rate = this._rate.filter(t => now - t < 60000);
+    $('#tape-rate').textContent = this._rate.length;
+    $('#tape-buy').textContent = Math.round(Feeds.S.buyPct);
   },
 };
 
@@ -556,13 +632,17 @@ function initKeys() {
     else if (k === 'v') WM.toggle('win-viz');
     else if (k === 'r') Deck.randomize();
     else if (k === 'c') Deck.cyclePal();
+    else if (k === 't') $('#tg-tape').classList.toggle('on', WM.toggle('win-tape'));
+    else if (k === 'm') $('#tg-snd').classList.toggle('on', Sound.toggle());
+    else if (k === 'x') { $('#src-name').textContent = Feeds.cycleSrc(1); Store.save({ src: Feeds.srcIdx }); Deck.toast('SOURCE: ' + Feeds.srcModes[Feeds.srcIdx]); }
     else if (k === 'a') { Viz.auto = !Viz.auto; $('#viz-auto').classList.toggle('on', Viz.auto); $('#tg-shuffle').classList.toggle('on', Viz.auto); }
   });
 }
 
 /* =============== boot =============== */
 addEventListener('DOMContentLoaded', () => {
-  WM.init(); SkinsUI.init(); Main.init(); EQ.init(); Playlist.init(); FeedsUI.init(); Marquee.init(); Deck.init(); initKeys();
+  WM.init(); SkinsUI.init(); Main.init(); EQ.init(); Playlist.init(); FeedsUI.init(); TapeUI.init(); Marquee.init(); Deck.init(); initKeys();
+  Sound.init();
   Feeds.start();
   const splash = $('#splash');
   const go = () => splash.classList.add('gone');
@@ -577,7 +657,7 @@ addEventListener('DOMContentLoaded', () => {
     Marquee.tick(dt);
     Main.drawMini();
     uiT += dt;
-    if (uiT > 0.25) { uiT = 0; Main.update(); EQ.tick(now / 1000, 0.25); FeedsUI.render(); }
+    if (uiT > 0.25) { uiT = 0; Main.update(); EQ.tick(now / 1000, 0.25); FeedsUI.render(); TapeUI.tick(); }
     const osd = $('#viz-block-osd');
     osd.textContent = Feeds.blockFlash > 0 ? '⚡ NEW BLOCK' : '';
     requestAnimationFrame(loop);

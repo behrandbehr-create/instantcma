@@ -870,3 +870,219 @@ Viz.register({
     g.textAlign = 'left';
   },
 });
+
+/* ================= 17. AVS SUPERSCOPE =================
+   Homage to Winamp AVS superscopes: a parametric point-scope whose equation
+   is warped by the waveform and spectrum, drawn with additive trails. */
+Viz.register({
+  name: 'AVS SUPERSCOPE',
+  draw(g, W, H, F, P, t, S) {
+    const N = 220 * P.density;
+    const cx = W / 2, cy = H / 2, R = Math.min(W, H) * 0.4;
+    g.globalCompositeOperation = 'lighter';
+    vSym(g, W, H, P.sym, () => {
+      let px = 0, py = 0;
+      for (let i = 0; i < N; i++) {
+        const p = i / N;
+        const w = F.wave[Math.floor(p * (F.wave.length - 1) + F.wavePos) % F.wave.length] * P.sens;
+        const sp = Viz.spec(Math.floor(p * 63), F);
+        // the classic "spiral scope" equation, bent by the network
+        const a = p * TAU * (2 + Math.sin(t * 0.23) * 1.5) + t * 0.7;
+        const r = R * (0.3 + 0.45 * Math.sin(p * Math.PI) + w * 0.35 + sp * 0.2 + F.beat * 0.12);
+        const x = cx + Math.cos(a) * r, y = cy + Math.sin(a) * r * (0.72 + 0.28 * Math.sin(t * 0.4));
+        if (i) {
+          g.strokeStyle = Viz.col(p * 160 + sp * 60, 95, 52 + sp * 30, 0.7);
+          g.lineWidth = 1.2 + sp * 3 + F.beat;
+          g.beginPath(); g.moveTo(px, py); g.lineTo(x, y); g.stroke();
+        }
+        px = x; py = y;
+      }
+    });
+  },
+});
+
+/* ================= 18. GEISS TERRAIN =================
+   Rolling plasma mountains a la the Geiss plugin: a scrolling heightfield
+   ridged by the spectrum, drawn as glowing horizon lines. */
+Viz.register({
+  name: 'GEISS TERRAIN',
+  draw(g, W, H, F, P, t, S, dt) {
+    if (!S.rows) { S.rows = []; S.acc = 9; }
+    S.acc += dt * (3 + F.level * 9) * P.speed;
+    while (S.acc >= 1) { // birth a new ridge at the horizon from the live spectrum
+      S.acc -= 1;
+      const ridge = new Float32Array(48);
+      for (let i = 0; i < 48; i++) {
+        const v = Viz.spec(Math.floor(Math.abs(i - 24) / 24 * 60), F);
+        ridge[i] = v + (Math.random() - 0.5) * 0.06;
+      }
+      S.rows.unshift(ridge);
+      if (S.rows.length > 26) S.rows.pop();
+    }
+    const horizon = H * 0.36;
+    g.globalCompositeOperation = 'lighter';
+    // sun: block-flash supernova
+    g.fillStyle = Viz.col(40, 100, 60, 0.8 + F.blockFlash * 0.2);
+    Viz.glowOn(g, Viz.col(40, 100, 55), 1.6 + F.blockFlash * 2);
+    g.beginPath(); g.arc(W / 2, horizon - H * 0.1, H * (0.05 + F.bass * 0.03 + F.blockFlash * 0.05), 0, TAU); g.fill();
+    Viz.glowOff(g);
+    S.rows.forEach((ridge, ri) => {
+      const p = ri / 26;
+      const y0 = horizon + Math.pow(p, 1.6) * (H - horizon);
+      const amp = H * 0.3 * Math.pow(p, 0.8);
+      const spread = lerp(W * 0.18, W * 0.62, p);
+      g.strokeStyle = Viz.col(p * 70, 90, lerp(68, 32, p), 0.85 - p * 0.3);
+      g.lineWidth = 1.4 + p * 2;
+      g.beginPath();
+      for (let i = 0; i < 48; i++) {
+        const x = W / 2 + (i / 47 - 0.5) * 2 * spread;
+        const y = y0 - ridge[i] * amp * P.sens;
+        i ? g.lineTo(x, y) : g.moveTo(x, y);
+      }
+      g.stroke();
+    });
+  },
+});
+
+/* ================= 19. G-FORCE WAVES =================
+   Layered flowing waveforms with mirror symmetry, in the spirit of G-Force. */
+Viz.register({
+  name: 'G-FORCE WAVES',
+  draw(g, W, H, F, P, t, S) {
+    g.globalCompositeOperation = 'lighter';
+    const layers = Math.round(5 * P.density) + 2;
+    for (let L = 0; L < layers; L++) {
+      const lp = L / (layers - 1);
+      const yc = H * (0.2 + lp * 0.6);
+      const ph = t * (0.6 + lp) + L * 2.1;
+      g.strokeStyle = Viz.col(L * 34, 92, 58, 0.55);
+      g.lineWidth = 1.6 + F.bass * 3 * (1 - lp);
+      Viz.glowOn(g, Viz.col(L * 34, 100, 55), 0.6);
+      g.beginPath();
+      const n = F.wave.length;
+      for (let i = 0; i <= n; i++) {
+        const w = F.wave[(F.wavePos + i) % n] * P.sens;
+        const x = i / n * W;
+        const y = yc + Math.sin(i / n * TAU * (1.5 + lp * 2) + ph) * H * 0.06 * (1 + F.level)
+                + w * H * 0.16 * (1 - lp * 0.5);
+        i ? g.lineTo(x, y) : g.moveTo(x, y);
+      }
+      g.stroke();
+      // mirrored ghost
+      g.globalAlpha = 0.35;
+      g.save(); g.translate(0, H); g.scale(1, -1); g.stroke(); g.restore();
+      g.globalAlpha = 1;
+    }
+    Viz.glowOff(g);
+  },
+});
+
+/* ================= 20. BEAT CUBE =================
+   Wireframe cube spinning in 3D; trades spark its edges, blocks detonate it. */
+Viz.register({
+  name: 'BEAT CUBE',
+  draw(g, W, H, F, P, t, S, dt) {
+    if (!S.rot) S.rot = { x: 0.4, y: 0.2, z: 0 };
+    S.rot.x += dt * 0.5 * P.speed; S.rot.y += dt * 0.7 * P.speed + F.bass * dt * 2; S.rot.z += dt * 0.3;
+    const size = Math.min(W, H) * 0.22 * (1 + F.beat * 0.35) * (F.blockFlash > 0.6 ? 1.3 : 1);
+    const V = [];
+    for (let i = 0; i < 8; i++) V.push([(i & 1 ? 1 : -1), (i & 2 ? 1 : -1), (i & 4 ? 1 : -1)]);
+    const E = [[0,1],[2,3],[4,5],[6,7],[0,2],[1,3],[4,6],[5,7],[0,4],[1,5],[2,6],[3,7]];
+    const { x: rx, y: ry, z: rz } = S.rot;
+    const proj = V.map(([x, y, z]) => {
+      let [a, b] = [y * Math.cos(rx) - z * Math.sin(rx), y * Math.sin(rx) + z * Math.cos(rx)]; y = a; z = b;
+      [a, b] = [x * Math.cos(ry) + z * Math.sin(ry), -x * Math.sin(ry) + z * Math.cos(ry)]; x = a; z = b;
+      [a, b] = [x * Math.cos(rz) - y * Math.sin(rz), x * Math.sin(rz) + y * Math.cos(rz)]; x = a; y = b;
+      const d = 3.2 / (3.2 + z);
+      return [W / 2 + x * size * d, H / 2 + y * size * d, d];
+    });
+    g.globalCompositeOperation = 'lighter';
+    vSym(g, W, H, Math.min(P.sym, 4), () => {
+      E.forEach(([a2, b2], i) => {
+        const v = Viz.spec(i * 5, F);
+        g.strokeStyle = Viz.col(i * 24, 95, 50 + v * 35, 0.85);
+        g.lineWidth = 1.5 + v * 5;
+        Viz.glowOn(g, Viz.col(i * 24, 100, 55), 0.6 + v);
+        g.beginPath(); g.moveTo(proj[a2][0], proj[a2][1]); g.lineTo(proj[b2][0], proj[b2][1]); g.stroke();
+      });
+      Viz.glowOff(g);
+      proj.forEach((p2, i) => {
+        g.fillStyle = Viz.col(i * 40, 90, 70, 0.9);
+        g.beginPath(); g.arc(p2[0], p2[1], (2 + F.treble * 5) * p2[2], 0, TAU); g.fill();
+      });
+    });
+  },
+});
+
+/* ================= 21. BAR GALAXY 3D =================
+   WhiteCap-style: the spectrum wrapped around a rotating 3D ring platform. */
+Viz.register({
+  name: 'BAR GALAXY 3D',
+  draw(g, W, H, F, P, t, S) {
+    const cx = W / 2, cy = H * 0.56, R = Math.min(W, H) * 0.34;
+    const rot = t * 0.5 * P.speed;
+    const tilt = 0.42;
+    const bars = [];
+    for (let i = 0; i < F.N; i++) {
+      const a = i / F.N * TAU + rot;
+      const v = Viz.spec(i, F);
+      const x3 = Math.cos(a) * R, z3 = Math.sin(a) * R;
+      bars.push({ x: cx + x3, y: cy + z3 * tilt, h: v * H * 0.3 * (1 + F.beat * 0.2), depth: z3, i, v });
+    }
+    bars.sort((a, b) => a.depth - b.depth); // paint back-to-front
+    g.globalCompositeOperation = 'lighter';
+    for (const b of bars) {
+      const near = (b.depth / R + 1) / 2; // 0 back … 1 front
+      const w = 3 + near * 6;
+      const grad = g.createLinearGradient(0, b.y - b.h, 0, b.y);
+      grad.addColorStop(0, Viz.col(b.i * 4 + 70, 100, 65, 0.35 + near * 0.6));
+      grad.addColorStop(1, Viz.col(b.i * 4, 85, 30, 0.25 + near * 0.4));
+      g.fillStyle = grad;
+      if (b.v > 0.4) Viz.glowOn(g, Viz.col(b.i * 4, 100, 55), b.v * near);
+      g.fillRect(b.x - w / 2, b.y - b.h, w, b.h + 2);
+      Viz.glowOff(g);
+    }
+    // hub readout
+    g.fillStyle = Viz.col(40, 90, 70, 0.9);
+    g.font = `bold ${Math.max(11, H / 30)}px monospace`; g.textAlign = 'center';
+    g.fillText(F.S.txRate.toFixed(1) + ' TX/S', cx, cy + 6); g.textAlign = 'left';
+  },
+});
+
+/* ================= 22. TUNNEL SCOPE =================
+   Tripex-style: rings of the live waveform receding into a twisting tunnel. */
+Viz.register({
+  name: 'TUNNEL SCOPE',
+  draw(g, W, H, F, P, t, S, dt) {
+    if (!S.rings) { S.rings = []; S.acc = 1; }
+    S.acc += dt * (5 + F.S.txRate * 0.5) * P.speed;
+    while (S.acc >= 1) {
+      S.acc -= 1;
+      const snap = new Float32Array(64);
+      for (let i = 0; i < 64; i++) snap[i] = F.wave[(F.wavePos + Math.floor(i / 64 * F.wave.length)) % F.wave.length];
+      S.rings.unshift({ z: 0, w: snap, beat: F.beat });
+      if (S.rings.length > 34) S.rings.pop();
+    }
+    const cx = W / 2 + Math.sin(t * 0.6) * W * 0.08, cy = H / 2 + Math.cos(t * 0.45) * H * 0.08;
+    g.globalCompositeOperation = 'lighter';
+    for (let ri = S.rings.length - 1; ri >= 0; ri--) {
+      const ring = S.rings[ri];
+      ring.z += dt * (0.55 + F.level * 0.7) * P.speed;
+      const p = clamp(ring.z, 0, 1);
+      const R = Math.pow(p, 1.7) * Math.hypot(W, H) * 0.62 + 4;
+      const twist = t * 0.8 + ri * 0.14;
+      g.strokeStyle = Viz.col(ri * 9 + p * 60, 92, 30 + p * 45, 0.12 + p * 0.75);
+      g.lineWidth = 1 + p * 2.6 + ring.beat * 2;
+      g.beginPath();
+      for (let i = 0; i <= 64; i++) {
+        const a = i / 64 * TAU + twist;
+        const w = ring.w[i % 64] * P.sens;
+        const r2 = R * (1 + w * 0.3);
+        const x = cx + Math.cos(a) * r2, y = cy + Math.sin(a) * r2;
+        i ? g.lineTo(x, y) : g.moveTo(x, y);
+      }
+      g.stroke();
+    }
+    S.rings = S.rings.filter(r2 => r2.z < 1.05);
+  },
+});

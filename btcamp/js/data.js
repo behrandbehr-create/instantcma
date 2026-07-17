@@ -41,8 +41,26 @@ const Feeds = {
   balance: 0,       // -1 on-chain … +1 market
   paused: false,
 
+  /* data-source selector: what feeds the visualization. FUSION blends everything
+     (market trades keep it moving between blocks); the rest solo one lens. */
+  srcModes: ['FUSION', 'MARKET', 'PRICE', 'VOLUME', 'CHAIN', 'MEMPOOL'],
+  srcIdx: 0,
+  srcMask: {
+    FUSION:  { tx: 1, val: 1, fee: 1, mem: 1, blk: 1, prc: 1.25, vol: 1.25, hsh: 1, dif: 1, lnn: 1 },
+    MARKET:  { tx: 0.12, val: 0.12, fee: 0.08, mem: 0.08, blk: 0.5, prc: 1.5, vol: 1.5, hsh: 0.05, dif: 0.05, lnn: 0.1 },
+    PRICE:   { tx: 0.05, val: 0.05, fee: 0.05, mem: 0.05, blk: 0.3, prc: 1.8, vol: 0.45, hsh: 0.03, dif: 0.03, lnn: 0.05 },
+    VOLUME:  { tx: 0.05, val: 0.05, fee: 0.05, mem: 0.05, blk: 0.3, prc: 0.45, vol: 1.8, hsh: 0.03, dif: 0.03, lnn: 0.05 },
+    CHAIN:   { tx: 1.4, val: 1.4, fee: 1.15, mem: 1, blk: 1.4, prc: 0.1, vol: 0.1, hsh: 0.6, dif: 0.6, lnn: 0.4 },
+    MEMPOOL: { tx: 0.9, val: 0.7, fee: 1.5, mem: 1.7, blk: 1, prc: 0.05, vol: 0.05, hsh: 0.1, dif: 0.3, lnn: 0.1 },
+  },
+  cycleSrc(dir) {
+    this.srcIdx = ((this.srcIdx + dir) % this.srcModes.length + this.srcModes.length) % this.srcModes.length;
+    return this.srcModes[this.srcIdx];
+  },
+
   eff(k) {
     let g = this.on[k] * (this.eqOn ? this.gains[k] * this.preamp : 1) * this.sens * 1.6;
+    g *= this.srcMask[this.srcModes[this.srcIdx]][k] || 1;
     const chain = ['tx', 'val', 'fee', 'mem', 'blk'].includes(k);
     if (this.balance < 0 && !chain) g *= 1 + this.balance * 0.9;
     if (this.balance > 0 && chain)  g *= 1 - this.balance * 0.9;
@@ -111,6 +129,7 @@ const Feeds = {
     if (size > 0 && isBuy !== undefined) {
       (isBuy ? this._buys : this._sells).push({ t: now, size });
       if (this.trades.length < 400) this.trades.push({ t: now, size, buy: !!isBuy, price });
+      this.emit('trade', { t: now, size, buy: !!isBuy, price });
     }
     // order-size spectrum bucket (log scale 0.001 → 30 BTC)
     if (size > 0) {

@@ -30,6 +30,11 @@ const SKINS = [
   { name: "Classified W3",      v: { w1:'#1f3338', w2:'#0f1a1d', bl:'#3d6069', bd:'#040808', t1:'#062e33', t2:'#12707d', tt:'#c8f4f7', lb:'#03110f', lf:'#4affd8', ld:'#125245', la:'#ccfff0', ac:'#4affd8', tx:'#8fb3b8', b1:'#2c4850', b2:'#152428', sh:'#4affd844' } },
   { name: "Higgsfield Ultra",   v: { w1:'#2a2622', w2:'#141210', bl:'#59504a', bd:'#060505', t1:'#1f1206', t2:'#8f4a0a', tt:'#ffe8cc', lb:'#0d0703', lf:'#ff8c1a', ld:'#4d2c08', la:'#ffd9a8', ac:'#ff8c1a', tx:'#cfc0b0', b1:'#403830', b2:'#201c18', sh:'#ff8c1a55',
       tex: 'https://d8j0ntlcm91z4.cloudfront.net/user_3G9FnmnAtJVrnrQzzqiZ1NoYfPk/hf_20260717_042809_1bb4c592-7c21-4f16-bd38-19906c42077c.png' } },
+  { name: "MiniDisc Silver",    v: { w1:'#c4c8cf', w2:'#8a8f99', bl:'#f2f4f7', bd:'#464b54', t1:'#1f5c8a', t2:'#4d9fd6', tt:'#ffffff', lb:'#0a1a24', lf:'#45d6ff', ld:'#175066', la:'#c8f2ff', ac:'#1a8fd1', tx:'#1d2126', b1:'#dde1e8', b2:'#9aa0ab', sh:'#1a8fd144' } },
+  { name: "Napster Nite",       v: { w1:'#101826', w2:'#080d16', bl:'#26374f', bd:'#030509', t1:'#0d2b12', t2:'#2a7a35', tt:'#c9f2cf', lb:'#050d07', lf:'#7dff8a', ld:'#1f5c28', la:'#d6ffdb', ac:'#7dff8a', tx:'#94a8c4', b1:'#1c2940', b2:'#0d1422', sh:'#7dff8a44' } },
+  { name: "X-Amp Crimson",      v: { w1:'#1c1c20', w2:'#0c0c0e', bl:'#3d3d44', bd:'#040405', t1:'#4d0508', t2:'#b3141c', tt:'#ffd9db', lb:'#0d0405', lf:'#ff4552', ld:'#591218', la:'#ffc4c9', ac:'#e6212e', tx:'#b3b3ba', b1:'#2e2e34', b2:'#161619', sh:'#e6212e44' } },
+  { name: "Blue Abstraction",   v: { w1:'#16305c', w2:'#0a1730', bl:'#2e5aa3', bd:'#040a17', t1:'#0a2452', t2:'#2b64c4', tt:'#d9e8ff', lb:'#040d1f', lf:'#6bb8ff', ld:'#1c4473', la:'#d1e9ff', ac:'#6bb8ff', tx:'#9db8dd', b1:'#20447f', b2:'#102345', sh:'#6bb8ff44' } },
+  { name: "GeissAmp Plasma",    v: { w1:'#2b1233', w2:'#160820', bl:'#592a6b', bd:'#08030d', t1:'#3d0a4d', t2:'#8f1fa3', tt:'#f7d9ff', lb:'#12051a', lf:'#e94aff', ld:'#5c1a6b', la:'#f7c8ff', ac:'#e94aff', tx:'#c4a3d1', b1:'#3f1c4d', b2:'#200e29', sh:'#e94aff44' } },
 ];
 
 const Skin = {

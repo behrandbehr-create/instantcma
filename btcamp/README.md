@@ -15,14 +15,25 @@ EQ shapes which network inputs drive the visuals, and the playlist is the chain 
 | **Network EQ** | 10-band equalizer | Each band is one data input: TX · VALUE · FEES · MEMPL · BLOCKS · PRICE · VOLUME · HASH · DIFF · LN. Slider = gain into the visuals, **click a band label to toggle that input off**. PREAMP = master |
 | **Block Chain** | playlist | Last 30 blocks as tracks (miner, txs, size, fees; "duration" = time to mine). Double-click / INSPECT opens the block on mempool.space |
 | **Network Visualizer** | vis plugin | The main event — see below |
-| **Skin Browser** | skins | 25 palettes inspired by the classic-era favorites, plus **Skin Lab** — HUE/SAT/LUM sliders that forge a 26th custom skin live (⏏ button, `S`) |
+| **Skin Browser** | skins | 30 palettes inspired by the classic-era favorites, plus **Skin Lab** — HUE/SAT/LUM sliders that forge a 31st custom skin live (⏏ button, `S`) |
+| **Trade Tape** | — | aggr.trade-style live tape: every trade with buy/sell coloring and size-scaled bars, whales in big type, block separators, trades/min + buy% header (`TAPE` button, `T`) |
 | **Data Feeds** | options | Live-wire toggles per feed with status LEDs + msg/s meters (`O` clutterbar, `D`) |
 
-## Visualizations (16 modes, keys 1–9,0,←→)
+## Visualizations (22 modes, keys 1–9,0,←→)
 
 Spectrum Classic · Oscilloscope · Matrix Rain · TX Fountain · Mempool Sea · Block City ·
 Warp Tunnel · Radial Pulse · Plasma Fire · Flow Field · Price Ribbon · Whale Sonar ·
-**Pressure Wind** · **Julia Drift** · **Mandel Deep** · Halving Spiral.
+**Pressure Wind** · **Julia Drift** · **Mandel Deep** · Halving Spiral · **AVS
+Superscope** · **Geiss Terrain** · **G-Force Waves** · **Beat Cube** · **Bar Galaxy 3D**
+· **Tunnel Scope**.
+
+The last six are homages to the classic plugin canon — AVS superscopes, Geiss plasma
+mountains, G-Force layered waves, demo-scene wireframe cubes, WhiteCap-style 3D bar
+rings, and Tripex waveform tunnels — all rebuilt natively and driven by the live signal.
+
+**Data source selector** (`SRC` LCD in the deck, or `X`): choose what drives the visuals —
+**FUSION** (default: every feed blended, so market trades keep it moving between blocks) ·
+MARKET · PRICE · VOLUME · CHAIN · MEMPOOL.
 
 **Julia Drift / Mandel Deep** are GPU fractals (WebGL shader, smooth log-log escape-time
 coloring, CPU fallback): the Julia constant orbits the cardioid bent by network bass, a
@@ -65,7 +76,16 @@ The *Higgsfield Ultra* skin chrome texture and the nebula backdrop behind Warp T
 Radial Pulse / Halving Spiral were generated with the Higgsfield connector (nano banana 2)
 and load from the Higgsfield CDN; everything degrades gracefully if they're unreachable.
 
+## Sound (aggr.trade-style)
+
+`SND` button (or `M`) arms the network audio engine (WebAudio, off by default): every
+trade blips — buys ring a fifth above sells, size drags the pitch down and the volume up;
+whales gong; a found block booms; round-number crossings chime. A compressor keeps
+frenzies from clipping. All knobs, sliders, and dials also respond to the scroll wheel,
+and drags are pointer-captured — no text selection, works on touch.
+
 ## Keys
 
-`1–9,0` vis modes · `←→` prev/next mode · `F` fullscreen · `Space` freeze · `A` auto-cycle ·
-`R` randomize dials · `S` skins · `E` EQ · `P` playlist · `V` visualizer · `D` data feeds
+`1–9,0` vis modes · `←→` prev/next mode · `F` fullscreen · `X` data source · `C` colors ·
+`M` sound · `T` trade tape · `Space` freeze · `A` auto-cycle · `R` randomize dials ·
+`S` skins · `E` EQ · `P` playlist · `V` visualizer · `D` data feeds

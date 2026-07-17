@@ -60,6 +60,8 @@
         <div id="vol-wrap"><span>SENSITIVITY</span><div class="hslider" id="vol"><div class="fill"></div><div class="thumb"></div></div></div>
         <div id="bal-wrap"><span>CHAIN ⟷ MARKET</span><div class="hslider" id="bal"><div class="fill"></div><div class="thumb"></div></div></div>
         <div id="extra-toggles">
+          <div class="btn3d" id="tg-snd" title="Network audio: trade blips, whale gongs, block booms (M)">SND</div>
+          <div class="btn3d" id="tg-tape" title="Live trade tape window (T)">TAPE</div>
           <div class="btn3d" id="tg-shuffle" title="Auto-cycle visualizations">SHUF</div>
           <div class="btn3d on" id="tg-eq" title="Network EQ window">EQ</div>
           <div class="btn3d on" id="tg-pl" title="Block chain playlist">PL</div>
@@ -122,10 +124,17 @@
       <div id="viz-toast"></div>
     </div>
     <div id="viz-deck">
-      <div class="lcd" id="viz-mode-lcd">
-        <span class="arrow" id="viz-prev">◀</span>
-        <span class="name" id="viz-name">SPECTRUM CLASSIC</span>
-        <span class="arrow" id="viz-next">▶</span>
+      <div id="viz-lcds">
+        <div class="lcd" id="viz-mode-lcd">
+          <span class="arrow" id="viz-prev">◀</span>
+          <span class="name" id="viz-name">SPECTRUM CLASSIC</span>
+          <span class="arrow" id="viz-next">▶</span>
+        </div>
+        <div class="lcd" id="viz-src-lcd" title="What data drives the visuals. FUSION blends every feed so it always moves.">
+          <span class="arrow" id="src-prev">◀</span>
+          <span class="name">SRC: <b id="src-name">FUSION</b></span>
+          <span class="arrow" id="src-next">▶</span>
+        </div>
       </div>
       <div id="viz-knobs"><!-- built by app.js --></div>
       <div id="viz-btns">
@@ -142,7 +151,7 @@
   <div class="win hidden" id="win-skins" style="left:1180px; top:120px;">
     <div class="titlebar" data-win="win-skins">
       <div class="grip"></div>
-      <div class="title">SKIN BROWSER · TOP 25</div>
+      <div class="title">SKIN BROWSER · CLASSICS + LAB</div>
       <div class="grip"></div>
       <div class="tb-btn" data-close="win-skins">×</div>
     </div>
@@ -153,6 +162,19 @@
       <div class="lab-row"><span>SAT</span><div class="hslider" id="lab-s"><div class="fill"></div><div class="thumb"></div></div></div>
       <div class="lab-row"><span>LUM</span><div class="hslider" id="lab-l"><div class="fill"></div><div class="thumb"></div></div></div>
     </div>
+  </div>
+
+  <!-- ================= TRADE TAPE ================= -->
+  <div class="win hidden" id="win-tape" style="left:1180px; top:36px;">
+    <div class="titlebar" data-win="win-tape">
+      <div class="grip"></div>
+      <div class="title">TRADE TAPE · LIVE</div>
+      <div class="grip"></div>
+      <div class="tb-btn" data-shade="win-tape">–</div>
+      <div class="tb-btn" data-close="win-tape">×</div>
+    </div>
+    <div class="lcd" id="tape-stats"><span id="tape-rate">–</span> TRADES/MIN · BUY <b id="tape-buy">50</b>%</div>
+    <div class="lcd" id="tape-list"></div>
   </div>
 
   <!-- ================= DATA FEEDS ================= -->
@@ -176,7 +198,7 @@
     <h1>BTCAMP</h1>
     <p>IT REALLY WHIPS THE BLOCKCHAIN'S ASS</p>
     <div class="hint">
-      1–9,0 SWITCH VIS · F FULLSCREEN · SPACE FREEZE · S SKINS · D FEEDS<br>
+      ←→ SWITCH VIS · F FULLSCREEN · X DATA SOURCE · C COLORS · M SOUND · T TAPE · S SKINS<br>
       CLICK ANYWHERE TO JACK IN
     </div>
   </div>
@@ -184,6 +206,7 @@
 
 <script src="js/skins.js"></script>
 <script src="js/data.js"></script>
+<script src="js/sound.js"></script>
 <script src="js/viz.js"></script>
 <script src="js/app.js"></script>
 </body>

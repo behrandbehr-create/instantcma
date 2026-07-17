@@ -100,11 +100,15 @@ body {
 .vslider.off { opacity:.35; }
 
 /* ============ knobs ============ */
-.knob-wrap { display:flex; flex-direction:column; align-items:center; gap:3px; width:52px; }
-.knob { width:34px; height:34px; border-radius:50%; cursor:ns-resize; position:relative;
+.knob-wrap { display:flex; flex-direction:column; align-items:center; gap:3px; width:54px; }
+.knob { width:38px; height:38px; border-radius:50%; cursor:grab; position:relative; touch-action:none;
   background:radial-gradient(circle at 35% 30%, var(--b1), var(--b2) 75%);
   border:2px solid; border-color:var(--bl) var(--bd) var(--bd) var(--bl);
   box-shadow:inset 0 0 6px #0008; }
+.knob.dragging { cursor:grabbing; border-color:var(--ac); box-shadow:0 0 8px var(--sh), inset 0 0 6px #0008; }
+.knob:hover .ptr { box-shadow:0 0 8px var(--ac); }
+.hslider, .vslider { touch-action:none; }
+.hslider.dragging .thumb, .vslider.dragging .thumb { border-color:var(--ac); }
 .knob .ptr { position:absolute; left:50%; top:50%; width:2px; height:13px; margin-left:-1px;
   transform-origin:50% 0; background:var(--ac); box-shadow:0 0 5px var(--ac); }
 .knob-wrap label { font-size:8px; letter-spacing:1px; color:var(--tx); opacity:.85; }
@@ -198,10 +202,13 @@ body.crt #crt-ov { display:block; }
   75% { opacity:1; transform:translate(-50%,-50%) scale(1); }
   100% { opacity:0; transform:translate(-50%,-52%) scale(1); } }
 #viz-deck { display:flex; align-items:center; gap:8px; padding:6px 4px 2px; flex-wrap:nowrap; }
-#viz-mode-lcd { display:flex; align-items:center; gap:4px; padding:3px 6px; min-width:190px; }
-#viz-mode-lcd .name { flex:1; text-align:center; font-size:11px; letter-spacing:1px; white-space:nowrap; }
-#viz-mode-lcd .arrow { cursor:pointer; color:var(--la); padding:0 3px; }
-#viz-mode-lcd .arrow:hover { color:#fff; }
+#viz-lcds { display:flex; flex-direction:column; gap:3px; min-width:190px; }
+#viz-mode-lcd, #viz-src-lcd { display:flex; align-items:center; gap:4px; padding:3px 6px; }
+#viz-mode-lcd .name, #viz-src-lcd .name { flex:1; text-align:center; font-size:11px; letter-spacing:1px; white-space:nowrap; }
+#viz-src-lcd .name { font-size:9px; }
+#viz-src-lcd b { color:var(--la); font-weight:normal; }
+#viz-mode-lcd .arrow, #viz-src-lcd .arrow { cursor:pointer; color:var(--la); padding:0 3px; }
+#viz-mode-lcd .arrow:hover, #viz-src-lcd .arrow:hover { color:#fff; }
 #viz-knobs { display:flex; gap:2px; flex:1; justify-content:space-evenly; }
 #viz-btns { display:flex; flex-direction:column; gap:3px; }
 #viz-btns .btn3d { font-size:8px; padding:1px 6px; }
@@ -226,6 +233,28 @@ body.fs .win:not(#win-viz) { display:none; }
 #skin-lab .lab-row { display:flex; align-items:center; gap:8px; padding:3px 2px; }
 #skin-lab .lab-row span { font-size:8px; letter-spacing:1px; width:26px; opacity:.85; }
 #skin-lab .lab-row .hslider { flex:1; }
+
+/* ============ trade tape (aggr-style) ============ */
+#win-tape { width:290px; }
+#tape-stats { padding:3px 8px; font-size:9px; letter-spacing:1px; margin-bottom:4px; }
+#tape-stats b { color:var(--la); font-weight:normal; }
+#tape-list { height:430px; overflow-y:auto; padding:2px 0; font-size:10px; }
+#tape-list::-webkit-scrollbar { width:10px; }
+#tape-list::-webkit-scrollbar-track { background:var(--w2); }
+#tape-list::-webkit-scrollbar-thumb { background:linear-gradient(180deg, var(--b1), var(--b2)); }
+#tape-list .tr { display:flex; align-items:center; gap:6px; padding:1px 8px; position:relative; white-space:nowrap; }
+#tape-list .tr .bg { position:absolute; left:0; top:0; bottom:0; opacity:.14; pointer-events:none; }
+#tape-list .tr.buy .bg { background:#2ee6a8; }
+#tape-list .tr.sell .bg { background:#ff4d5e; }
+#tape-list .tr .side { width:34px; font-weight:bold; }
+#tape-list .tr.buy .side { color:#2ee6a8; }
+#tape-list .tr.sell .side { color:#ff4d5e; }
+#tape-list .tr .sz { flex:1; text-align:right; color:var(--lf); }
+#tape-list .tr .px2 { color:var(--ld); text-shadow:none; width:74px; text-align:right; }
+#tape-list .tr.big { font-size:12px; font-weight:bold; }
+#tape-list .tr.mega { font-size:14px; font-weight:bold; text-shadow:0 0 8px currentColor; }
+#tape-list .blkrow { text-align:center; color:var(--ac); text-shadow:0 0 6px var(--ac);
+  padding:2px 0; font-size:9px; letter-spacing:2px; }
 
 /* ============ feeds window ============ */
 #win-feeds { width:340px; }
