@@ -274,6 +274,17 @@ body.fs .win:not(#win-viz) { display:none; }
 .feed-row .btn3d { font-size:8px; width:38px; }
 #feeds-note { font-size:8px; opacity:.7; padding:4px 6px; line-height:1.5; }
 
+/* diagnostics */
+#err-banner { position:fixed; left:0; right:0; bottom:0; z-index:9999; display:none;
+  background:#2b0508f2; color:#ff8f96; border-top:2px solid #e6212e;
+  font-size:11px; padding:6px 12px; letter-spacing:1px; }
+#err-banner.show { display:block; }
+#viz-diag { position:absolute; left:8px; bottom:8px; z-index:11; display:none;
+  background:#000000cc; color:var(--lf); text-shadow:0 0 4px var(--lf);
+  border:1px solid var(--ld); padding:8px 10px; font-size:10px; line-height:1.7;
+  letter-spacing:1px; pointer-events:none; max-width:92%; }
+#viz-diag.show { display:block; }
+
 /* about / splash */
 #splash { position:fixed; inset:0; z-index:99; display:flex; align-items:center; justify-content:center; background:#05060af0; transition:opacity .6s; }
 #splash.gone { opacity:0; pointer-events:none; }

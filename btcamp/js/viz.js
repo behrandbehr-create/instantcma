@@ -12,18 +12,21 @@ const Viz = {
 
   register(m) { this.modes.push(m); },
 
+  dprCap: 2, perf: false, fps: 60, lastErr: null, _errN: 0,
   attach(canvas) {
     this.canvas = canvas; this.g = canvas.getContext('2d');
     const fit = () => {
       const r = canvas.getBoundingClientRect();
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const dpr = Math.min(window.devicePixelRatio || 1, this.dprCap);
       canvas.width = Math.max(64, r.width * dpr); canvas.height = Math.max(64, r.height * dpr);
       this.W = canvas.width; this.H = canvas.height; this.S = {};
       this.g.setTransform(1, 0, 0, 1, 0, 0);
       this.g.fillStyle = '#000'; this.g.fillRect(0, 0, this.W, this.H);
     };
+    this._fit = fit;
     new ResizeObserver(fit).observe(canvas); fit();
   },
+  setDprCap(v) { this.dprCap = v; if (this._fit) this._fit(); },
 
   set(i) {
     const next = ((i % this.modes.length) + this.modes.length) % this.modes.length;
@@ -71,7 +74,14 @@ const Viz = {
     g.save();
     // zoom around center
     if (P.zoom !== 1) { g.translate(this.W / 2, this.H / 2); g.scale(P.zoom, P.zoom); g.translate(-this.W / 2, -this.H / 2); }
-    try { m.draw(g, this.W, this.H, Feeds, P, this.time, this.S, dt); } catch (e) {}
+    try {
+      m.draw(g, this.W, this.H, Feeds, P, this.time, this.S, dt);
+      if (this._errN > 0 && --this._errN === 0) this.lastErr = null;
+    } catch (e) {
+      // surface repeated failures instead of dying silently to a black screen
+      this._errN = Math.min(this._errN + 2, 120);
+      if (this._errN > 10) this.lastErr = m.name + ': ' + (e.message || e);
+    }
     g.restore();
     g.globalCompositeOperation = 'source-over';
     g.shadowBlur = 0;
@@ -87,7 +97,11 @@ const Viz = {
     }
   },
 
-  glowOn(g, c, amt = 1) { const b = this.P.glow * 24 * amt; if (b > 0.5) { g.shadowBlur = b; g.shadowColor = c; } },
+  glowOn(g, c, amt = 1) {
+    if (this.perf) return; // shadowBlur is the #1 canvas perf killer on weak GPUs
+    const b = this.P.glow * 24 * amt;
+    if (b > 0.5) { g.shadowBlur = b; g.shadowColor = c; }
+  },
   glowOff(g) { g.shadowBlur = 0; },
 
   spec(i, F) { return clamp(F.spec[i] * this.P.sens, 0, 1.35); },

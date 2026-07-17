@@ -692,13 +692,67 @@ function initKeys() {
     else if (k === 't') $('#tg-tape').classList.toggle('on', WM.toggle('win-tape'));
     else if (k === 'm') $('#tg-snd').classList.toggle('on', Sound.toggle());
     else if (k === 'x') { $('#src-name').textContent = Feeds.cycleSrc(1); Store.save({ src: Feeds.srcIdx }); Deck.toast('SOURCE: ' + Feeds.srcModes[Feeds.srcIdx]); }
+    else if (k === 'g') Diag.toggle();
     else if (k === 'a') { Viz.auto = !Viz.auto; $('#viz-auto').classList.toggle('on', Viz.auto); $('#tg-shuffle').classList.toggle('on', Viz.auto); }
   });
 }
 
+/* =============== diagnostics & self-defense =============== */
+const BUILD = 'v8';
+const Diag = {
+  visible: false,
+  init() {
+    // red error strip: any uncaught error shows itself instead of a dead black canvas
+    this.banner = document.createElement('div');
+    this.banner.id = 'err-banner';
+    document.body.appendChild(this.banner);
+    addEventListener('error', (e) => this.err(e.message + (e.filename ? ' @ ' + e.filename.split('/').pop() + ':' + e.lineno : '')));
+    addEventListener('unhandledrejection', (e) => this.err('async: ' + (e.reason && e.reason.message || e.reason)));
+    // diagnostics overlay inside the viz screen (G key)
+    this.panel = document.createElement('div');
+    this.panel.id = 'viz-diag';
+    $('#viz-screen').appendChild(this.panel);
+  },
+  err(msg) {
+    if (!msg) return;
+    this.banner.textContent = '⚠ ' + String(msg).slice(0, 160) + '  — press G for diagnostics';
+    this.banner.classList.add('show');
+    clearTimeout(this._t);
+    this._t = setTimeout(() => this.banner.classList.remove('show'), 12000);
+  },
+  toggle() { this.visible = !this.visible; this.panel.classList.toggle('show', this.visible); },
+  tick() {
+    if (Viz.lastErr) this.err('viz ' + Viz.lastErr);
+    if (!this.visible) return;
+    const F = Feeds, gl = !!(Fractal.ok || (Fractal.init && Fractal.init()));
+    this.panel.innerHTML =
+      `BTCAMP ${BUILD} · ${Viz.modes[Viz.idx].name}<br>` +
+      `FPS ${Viz.fps.toFixed(0)}${Viz.perf ? ' · PERF MODE' : ''} · CANVAS ${Viz.W}×${Viz.H} · DPR≤${Viz.dprCap}<br>` +
+      `WEBGL ${gl ? 'OK' : 'NO'} · WARP ${Warp.ok === null ? '—' : Warp.ok ? 'OK' : 'NO'}<br>` +
+      `FEEDS mempool:${F.conn.mempool} chain:${F.conn.chain} price:${F.conn.price} rest:${F.conn.rest} sim:${F.conn.sim}<br>` +
+      `MSG/S ${F.msgRate.mempool.toFixed(1)} / ${F.msgRate.chain.toFixed(1)} / ${F.msgRate.price.toFixed(1)} · TX/S ${F.S.txRate.toFixed(1)}<br>` +
+      `SIGNAL level ${F.level.toFixed(2)} bass ${F.bass.toFixed(2)} beat ${F.beat.toFixed(2)} · SRC ${F.srcModes[F.srcIdx]}<br>` +
+      (Viz.lastErr ? `LAST VIZ ERROR: ${Viz.lastErr}` : 'NO VIZ ERRORS');
+  },
+};
+
+/* auto-degrade on weak GPUs: sustained low FPS → drop resolution + kill glow */
+const PerfGuard = {
+  bad: 0, done: false,
+  tick(dt) {
+    Viz.fps = lerp(Viz.fps, 1 / Math.max(dt, 0.001), 0.05);
+    if (this.done || document.hidden) return;
+    if (Viz.fps < 26) { this.bad += dt; } else this.bad = Math.max(0, this.bad - dt);
+    if (this.bad > 4) {
+      this.done = true; Viz.perf = true; Viz.setDprCap(1);
+      Deck.toast('PERF MODE: RESOLUTION + GLOW REDUCED');
+    }
+  },
+};
+
 /* =============== boot =============== */
 addEventListener('DOMContentLoaded', () => {
-  WM.init(); SkinsUI.init(); Main.init(); EQ.init(); Playlist.init(); FeedsUI.init(); TapeUI.init(); Marquee.init(); Deck.init(); Presets.init(); initKeys();
+  WM.init(); SkinsUI.init(); Main.init(); EQ.init(); Playlist.init(); FeedsUI.init(); TapeUI.init(); Marquee.init(); Deck.init(); Presets.init(); Diag.init(); initKeys();
   Sound.init();
   Feeds.start();
   const splash = $('#splash');
@@ -713,8 +767,9 @@ addEventListener('DOMContentLoaded', () => {
     Viz.frame(dt);
     Marquee.tick(dt);
     Main.drawMini();
+    PerfGuard.tick(dt);
     uiT += dt;
-    if (uiT > 0.25) { uiT = 0; Main.update(); EQ.tick(now / 1000, 0.25); FeedsUI.render(); TapeUI.tick(); }
+    if (uiT > 0.25) { uiT = 0; Main.update(); EQ.tick(now / 1000, 0.25); FeedsUI.render(); TapeUI.tick(); Diag.tick(); }
     const osd = $('#viz-block-osd');
     osd.textContent = Feeds.blockFlash > 0 ? '⚡ NEW BLOCK' : '';
     requestAnimationFrame(loop);
