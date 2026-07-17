@@ -221,6 +221,11 @@ body.fs .win:not(#win-viz) { display:none; }
 #skin-list .row:hover { background:#ffffff12; }
 #skin-list .row.sel { background:var(--t1); color:#fff; }
 #skin-list .row .sw { width:26px; height:10px; border:1px solid #0008; flex:0 0 26px; }
+#skin-lab { padding:6px 4px 2px; }
+#skin-lab .lab-title { font-size:8px; letter-spacing:2px; opacity:.75; padding:0 2px 5px; }
+#skin-lab .lab-row { display:flex; align-items:center; gap:8px; padding:3px 2px; }
+#skin-lab .lab-row span { font-size:8px; letter-spacing:1px; width:26px; opacity:.85; }
+#skin-lab .lab-row .hslider { flex:1; }
 
 /* ============ feeds window ============ */
 #win-feeds { width:340px; }

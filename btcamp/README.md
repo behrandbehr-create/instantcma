@@ -15,14 +15,20 @@ EQ shapes which network inputs drive the visuals, and the playlist is the chain 
 | **Network EQ** | 10-band equalizer | Each band is one data input: TX · VALUE · FEES · MEMPL · BLOCKS · PRICE · VOLUME · HASH · DIFF · LN. Slider = gain into the visuals, **click a band label to toggle that input off**. PREAMP = master |
 | **Block Chain** | playlist | Last 30 blocks as tracks (miner, txs, size, fees; "duration" = time to mine). Double-click / INSPECT opens the block on mempool.space |
 | **Network Visualizer** | vis plugin | The main event — see below |
-| **Skin Browser** | skins | 25 palettes inspired by the classic-era favorites (⏏ button, `S`) |
+| **Skin Browser** | skins | 25 palettes inspired by the classic-era favorites, plus **Skin Lab** — HUE/SAT/LUM sliders that forge a 26th custom skin live (⏏ button, `S`) |
 | **Data Feeds** | options | Live-wire toggles per feed with status LEDs + msg/s meters (`O` clutterbar, `D`) |
 
-## Visualizations (14 modes, keys 1–9,0,←→)
+## Visualizations (16 modes, keys 1–9,0,←→)
 
 Spectrum Classic · Oscilloscope · Matrix Rain · TX Fountain · Mempool Sea · Block City ·
 Warp Tunnel · Radial Pulse · Plasma Fire · Flow Field · Price Ribbon · Whale Sonar ·
-**Pressure Wind** · Halving Spiral.
+**Pressure Wind** · **Julia Drift** · **Mandel Deep** · Halving Spiral.
+
+**Julia Drift / Mandel Deep** are GPU fractals (WebGL shader, smooth log-log escape-time
+coloring, CPU fallback): the Julia constant orbits the cardioid bent by network bass, a
+spectrum halo rings the set; Mandel Deep breathes into famous loci (seahorse valley and
+friends) at up to 22,000× — every found block warps it to a new locus. Mode switches
+**crossfade smoothly** instead of hard-cutting.
 
 **Pressure Wind** is the full BTC://SIGNAL experience folded in: a momentum particle wind
 (green blows up, red blows down), a spark burst for every trade on the tape, whale
@@ -31,8 +37,10 @@ session high/low, a 10-second buy/sell pressure bar, and an order-size spectrum
 (small orders left → whales right) with classic falling peak caps.
 
 Eight dials shape every mode: **SPEED · TRAILS · GLOW · HUE · DENSITY · SENS · SYMMETRY ·
-ZOOM** (drag vertically, double-click to reset). `AUTO` cycles modes, `RND` randomizes the
-dials, `CRT` adds a scanline/vignette overlay, `FULL`/`F`/double-click for fullscreen.
+ZOOM** (drag vertically, double-click to reset). `PAL`/`C` cycles five color engines that
+retint every mode — **SKIN / RAINBOW / FIRE / ICE / MONO**. `AUTO` cycles modes, `RND`
+randomizes the dials, `CRT` adds a scanline/vignette overlay, `FULL`/`F`/double-click for
+fullscreen.
 Round-number price crossings ($1,000 lines) and 10+ BTC whale trades flash a toast over
 the visualizer and take over the marquee.
 

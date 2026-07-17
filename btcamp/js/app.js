@@ -161,6 +161,16 @@ const Deck = {
       Store.save({ crt: on });
     });
     if (CFG.crt) { document.body.classList.add('crt'); $('#viz-crt').classList.add('on'); }
+    if (CFG.pal) Viz.pal = CFG.pal % Viz.pals.length;
+    $('#viz-pal').addEventListener('click', () => this.cyclePal());
+  },
+  cyclePal() {
+    const name = Viz.cyclePal();
+    Store.save({ pal: Viz.pal });
+    const osd = $('#viz-osd');
+    osd.textContent = '◈ PALETTE: ' + name;
+    osd.classList.add('show');
+    clearTimeout(this._osdT); this._osdT = setTimeout(() => osd.classList.remove('show'), 1800);
   },
   toast(msg) {
     const el = $('#viz-toast');
@@ -472,7 +482,21 @@ const FeedsUI = {
 
 /* =============== skins panel =============== */
 const SkinsUI = {
+  lab: Object.assign({ h: 28, s: 70, l: 50 }, CFG.lab || {}),
+  buildCustom() {
+    const { h, s, l } = this.lab;
+    const f = (ll, ss = s) => `hsl(${h},${Math.round(ss)}%,${Math.round(clamp(ll * (l / 50), 2, 96))}%)`;
+    return {
+      w1: f(26, s * 0.4), w2: f(12, s * 0.4), bl: f(44, s * 0.35), bd: '#060607',
+      t1: f(18, s * 0.9), t2: f(38, s * 0.9), tt: f(92, s * 0.5),
+      lb: f(4, s * 0.6), lf: f(58, Math.max(s, 60)), ld: f(24, s * 0.8), la: f(80, s * 0.7),
+      ac: f(60, Math.max(s, 55)), tx: f(78, s * 0.25), b1: f(32, s * 0.4), b2: f(16, s * 0.4),
+      sh: `hsla(${h},${Math.round(s)}%,55%,0.33)`,
+    };
+  },
   init() {
+    // skin #26: the user's own creation, shaped by the Skin Lab sliders
+    SKINS.push({ name: 'Skin Lab Custom', v: this.buildCustom() });
     const host = $('#skin-list');
     SKINS.forEach((s, i) => {
       const r = document.createElement('div'); r.className = 'row';
@@ -480,6 +504,18 @@ const SkinsUI = {
       r.addEventListener('click', () => { Skin.apply(i); this.applyHue(); Marquee.flash('SKIN LOADED: ' + s.name.toUpperCase()); });
       host.appendChild(r);
     });
+    // Skin Lab sliders: live-rebuild the custom skin while dragging
+    const labSlider = (id, key, max) => makeHSlider($(id),
+      () => this.lab[key] / max,
+      (f) => {
+        this.lab[key] = f * max;
+        SKINS[SKINS.length - 1].v = this.buildCustom();
+        const sw = $('#skin-list .row:last-child .sw');
+        if (sw) sw.style.background = `linear-gradient(90deg, ${SKINS[SKINS.length - 1].v.w1} 0 33%, ${SKINS[SKINS.length - 1].v.ac} 33% 66%, ${SKINS[SKINS.length - 1].v.lf} 66%)`;
+        Skin.apply(SKINS.length - 1); this.applyHue();
+        Store.save({ lab: this.lab });
+      });
+    labSlider('#lab-h', 'h', 360); labSlider('#lab-s', 's', 100); labSlider('#lab-l', 'l', 100);
     const saved = parseInt(localStorage.getItem('btcamp_skin') || '1', 10);
     Skin.apply(isNaN(saved) ? 1 : saved);
     this.applyHue();
@@ -519,6 +555,7 @@ function initKeys() {
     else if (k === 'p') WM.toggle('win-pl');
     else if (k === 'v') WM.toggle('win-viz');
     else if (k === 'r') Deck.randomize();
+    else if (k === 'c') Deck.cyclePal();
     else if (k === 'a') { Viz.auto = !Viz.auto; $('#viz-auto').classList.toggle('on', Viz.auto); $('#tg-shuffle').classList.toggle('on', Viz.auto); }
   });
 }

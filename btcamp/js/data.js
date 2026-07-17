@@ -352,7 +352,7 @@ const Feeds = {
       get('https://mempool.space/api/v1/lightning/statistics/latest').then(l => { const x = l.latest || l; this.S.ln = { nodes: x.node_count || 0, channels: x.channel_count || 0, capacity: (x.total_capacity || 0) / 1e8 }; }).catch(() => {}),
     ];
     if (this.conn.price !== 'live') jobs.push(get('https://api.coinbase.com/v2/prices/BTC-USD/spot').then(p => { const v = parseFloat(p.data.amount); if (v) this.onTrade(v, 0); }));
-    for (const j of jobs) { try { await j; ok = true; } catch (e) {} }
+    await Promise.all(jobs.map(j => j.then(() => { ok = true; }, () => {})));
     this.conn.rest = ok ? 'live' : 'error'; this.emit('conn');
   },
 

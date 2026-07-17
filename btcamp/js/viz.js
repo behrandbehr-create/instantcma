@@ -7,6 +7,8 @@ const Viz = {
   modes: [], idx: 0, auto: false, autoT: 0,
   P: { speed: 1, trails: 0.65, glow: 0.6, hue: 30, density: 1, sens: 1, sym: 1, zoom: 1 },
   canvas: null, g: null, W: 0, H: 0, S: {}, time: 0, hueBase: 30,
+  pals: ['SKIN', 'RAINBOW', 'FIRE', 'ICE', 'MONO'], pal: 0,
+  _fade: null, // crossfade snapshot of the previous mode
 
   register(m) { this.modes.push(m); },
 
@@ -24,7 +26,15 @@ const Viz = {
   },
 
   set(i) {
-    this.idx = ((i % this.modes.length) + this.modes.length) % this.modes.length;
+    const next = ((i % this.modes.length) + this.modes.length) % this.modes.length;
+    // smooth blend: snapshot the outgoing frame and crossfade it over the incoming mode
+    if (this.g && this.W && next !== this.idx) {
+      const snap = document.createElement('canvas');
+      snap.width = this.W; snap.height = this.H;
+      snap.getContext('2d').drawImage(this.canvas, 0, 0);
+      this._fade = { img: snap, a: 1 };
+    }
+    this.idx = next;
     this.S = {}; this.autoT = 0;
     const g = this.g; if (g) { g.setTransform(1, 0, 0, 1, 0, 0); g.fillStyle = '#000'; g.fillRect(0, 0, this.W, this.H); }
     return this.modes[this.idx].name;
@@ -32,8 +42,18 @@ const Viz = {
   next() { return this.set(this.idx + 1); },
   prev() { return this.set(this.idx - 1); },
 
-  hue(off = 0) { return (this.hueBase + this.P.hue + off) % 360; },
-  col(off, s, l, a = 1) { return `hsla(${this.hue(off)},${s}%,${l}%,${a})`; },
+  hue(off = 0) {
+    const p = this.pals[this.pal];
+    if (p === 'RAINBOW') return (this.time * 24 + off * 3 + this.P.hue) % 360;
+    if (p === 'FIRE') return 5 + (Math.abs(off + this.P.hue) % 90) * 0.6;           // deep red → gold
+    if (p === 'ICE') return 175 + (Math.abs(off + this.P.hue) % 100) * 0.85;        // teal → violet
+    return (this.hueBase + this.P.hue + off) % 360;                                  // SKIN & MONO
+  },
+  col(off, s, l, a = 1) {
+    if (this.pals[this.pal] === 'MONO') { s = Math.min(s, 20); off = 0; }
+    return `hsla(${this.hue(off)},${s}%,${l}%,${a})`;
+  },
+  cyclePal() { this.pal = (this.pal + 1) % this.pals.length; return this.pals[this.pal]; },
 
   frame(dt) {
     if (!this.g || !this.W) return;
@@ -55,6 +75,16 @@ const Viz = {
     g.restore();
     g.globalCompositeOperation = 'source-over';
     g.shadowBlur = 0;
+    // crossfade the previous mode's last frame over the new one
+    if (this._fade) {
+      this._fade.a -= dt * 1.4;
+      if (this._fade.a <= 0) this._fade = null;
+      else {
+        g.globalAlpha = Math.min(1, this._fade.a);
+        g.drawImage(this._fade.img, 0, 0, this.W, this.H);
+        g.globalAlpha = 1;
+      }
+    }
   },
 
   glowOn(g, c, amt = 1) { const b = this.P.glow * 24 * amt; if (b > 0.5) { g.shadowBlur = b; g.shadowColor = c; } },
@@ -630,7 +660,180 @@ Viz.register({
   },
 });
 
-/* ================= 14. HALVING SPIRAL ================= */
+/* ================= FRACTAL ENGINE (WebGL, smooth coloring) =================
+   GPU escape-time fractals with log-log smooth iteration coloring. Uniforms are
+   driven by the live network signal; falls back to a CPU render if WebGL fails. */
+const Fractal = {
+  ok: null, size: [0, 0],
+  init() {
+    if (this.ok !== null) return this.ok;
+    try {
+      this.cv = document.createElement('canvas');
+      const gl = this.gl = this.cv.getContext('webgl', { antialias: false, depth: false, preserveDrawingBuffer: true });
+      if (!gl) throw 0;
+      const vs = 'attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}';
+      const fs = `precision highp float;
+uniform vec2 res;uniform vec2 cc;uniform vec2 ctr;uniform float zm;uniform float hue;
+uniform float sat;uniform float en;uniform float md;
+vec3 h2r(float h,float s,float v){vec3 k=abs(mod(h*6.+vec3(0.,4.,2.),6.)-3.)-1.;return v*mix(vec3(1.),clamp(k,0.,1.),s);}
+void main(){
+  vec2 uv=(gl_FragCoord.xy-.5*res)/min(res.x,res.y)*3./zm+ctr;
+  vec2 z,c2;
+  if(md<.5){z=uv;c2=cc;}else{z=vec2(0.);c2=uv;}
+  float n=-1.;vec2 zz=z;float m2=0.;
+  for(int i=0;i<220;i++){
+    zz=vec2(zz.x*zz.x-zz.y*zz.y,2.*zz.x*zz.y)+c2;
+    m2=dot(zz,zz);
+    if(m2>256.){n=float(i);break;}
+  }
+  if(n<0.){gl_FragColor=vec4(h2r(hue,sat*.5,.05+en*.04),1.);return;}
+  float sn=n-log2(log2(m2))+4.;
+  float t=sn*.016;
+  float v=clamp(1.-exp(-sn*.085),0.,1.);
+  float band=.55+.45*sin(t*6.28318+en);
+  vec3 col=h2r(fract(hue+t*.9),sat,(.06+.94*v*band)*(.5+en*.7));
+  col+=vec3(1.,.95,.8)*pow(v,16.)*(.3+en*.7);
+  gl_FragColor=vec4(col,1.);
+}`;
+      const mk = (t, s) => { const sh = gl.createShader(t); gl.shaderSource(sh, s); gl.compileShader(sh); if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) throw gl.getShaderInfoLog(sh); return sh; };
+      const pr = this.pr = gl.createProgram();
+      gl.attachShader(pr, mk(gl.VERTEX_SHADER, vs)); gl.attachShader(pr, mk(gl.FRAGMENT_SHADER, fs));
+      gl.linkProgram(pr); if (!gl.getProgramParameter(pr, gl.LINK_STATUS)) throw 0;
+      gl.useProgram(pr);
+      const buf = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+      const loc = gl.getAttribLocation(pr, 'p');
+      gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+      this.u = {}; for (const n of ['res', 'cc', 'ctr', 'zm', 'hue', 'sat', 'en', 'md']) this.u[n] = gl.getUniformLocation(pr, n);
+      this.ok = true;
+    } catch (e) { this.ok = false; }
+    return this.ok;
+  },
+  render(W, H, o) {
+    const gl = this.gl, w = Math.max(64, W >> 1), h = Math.max(64, H >> 1);
+    if (this.size[0] !== w || this.size[1] !== h) { this.cv.width = w; this.cv.height = h; gl.viewport(0, 0, w, h); this.size = [w, h]; }
+    gl.uniform2f(this.u.res, w, h);
+    gl.uniform2f(this.u.cc, o.cx, o.cy);
+    gl.uniform2f(this.u.ctr, o.px, o.py);
+    gl.uniform1f(this.u.zm, o.zoom);
+    gl.uniform1f(this.u.hue, o.hue);
+    gl.uniform1f(this.u.sat, o.sat);
+    gl.uniform1f(this.u.en, o.energy);
+    gl.uniform1f(this.u.md, o.mandel ? 1 : 0);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    return this.cv;
+  },
+  /* CPU fallback at low resolution */
+  cpu(S, W, H, o) {
+    const w = 128, h = 72;
+    if (!S.off) { S.off = document.createElement('canvas'); S.off.width = w; S.off.height = h; S.og = S.off.getContext('2d'); S.img = S.og.createImageData(w, h); }
+    const d = S.img.data;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      let zx, zy, cx2, cy2;
+      const ux = (x - w / 2) / (h / 2) * 1.5 / o.zoom + o.px, uy = (y - h / 2) / (h / 2) * 1.5 / o.zoom + o.py;
+      if (o.mandel) { zx = 0; zy = 0; cx2 = ux; cy2 = uy; } else { zx = ux; zy = uy; cx2 = o.cx; cy2 = o.cy; }
+      let i = 0, m2 = 0;
+      for (; i < 80; i++) { const t2 = zx * zx - zy * zy + cx2; zy = 2 * zx * zy + cy2; zx = t2; m2 = zx * zx + zy * zy; if (m2 > 64) break; }
+      const k = (y * w + x) * 4;
+      if (i >= 80) { d[k] = d[k + 1] = d[k + 2] = 8; d[k + 3] = 255; }
+      else {
+        const sn = i - Math.log2(Math.log2(m2)) + 4;
+        const c = hslToRgb(((o.hue * 360 + sn * 6) % 360) / 360, o.sat, clamp(0.2 + 0.5 * (0.5 + 0.5 * Math.sin(sn * 0.4)), 0, 0.85) * (0.55 + o.energy * 0.6));
+        d[k] = c[0]; d[k + 1] = c[1]; d[k + 2] = c[2]; d[k + 3] = 255;
+      }
+    }
+    S.og.putImageData(S.img, 0, 0);
+    return S.off;
+  },
+};
+
+/* ================= 14. JULIA DRIFT ================= */
+Viz.register({
+  name: 'JULIA DRIFT',
+  noFade: true,
+  draw(g, W, H, F, P, t, S, dt) {
+    if (!S.ph) { S.ph = Math.random() * TAU; S.zoom = 1; S.rot = 0; }
+    // the Julia constant orbits the cardioid rim; network activity bends the orbit
+    S.ph += dt * (0.11 + F.level * 0.25);
+    S.rot += dt * 0.05 * P.speed;
+    const wob = Math.sin(t * 0.7) * 0.02 + F.bass * 0.05;
+    const r = 0.7885 + wob * 0.4;
+    const o = {
+      cx: r * Math.cos(S.ph), cy: r * Math.sin(S.ph),
+      px: 0, py: 0,
+      zoom: (1.18 + F.beat * 0.3 + F.level * 0.18) * P.zoom,
+      hue: Viz.hue(0) / 360, sat: Viz.pals[Viz.pal] === 'MONO' ? 0.15 : 0.85,
+      energy: clamp(F.level * P.sens * 1.6 + F.blockFlash * 0.8, 0.1, 1.6),
+      mandel: false,
+    };
+    const src = Fractal.init() ? Fractal.render(W, H, o) : Fractal.cpu(S, W, H, o);
+    g.imageSmoothingEnabled = true;
+    g.save(); g.translate(W / 2, H / 2); g.rotate(S.rot); g.scale(1.08, 1.08); g.translate(-W / 2, -H / 2);
+    g.drawImage(src, 0, 0, W, H); g.restore();
+    // spectrum halo ring around the fractal
+    g.globalCompositeOperation = 'lighter';
+    const R = Math.min(W, H) * 0.47;
+    for (let i = 0; i < F.N; i += 2) {
+      const v = Viz.spec(i, F); if (v < 0.05) continue;
+      const a = i / F.N * TAU - Math.PI / 2 + S.rot;
+      g.strokeStyle = Viz.col(i * 2, 90, 60, v * 0.5);
+      g.lineWidth = 2;
+      g.beginPath();
+      g.moveTo(W / 2 + Math.cos(a) * R, H / 2 + Math.sin(a) * R);
+      g.lineTo(W / 2 + Math.cos(a) * (R + v * 40), H / 2 + Math.sin(a) * (R + v * 40));
+      g.stroke();
+    }
+  },
+});
+
+/* ================= 15. MANDEL DEEP ================= */
+Viz.register({
+  name: 'MANDEL DEEP',
+  noFade: true,
+  draw(g, W, H, F, P, t, S, dt) {
+    if (!S.z) { S.z = 0.8; S.tgt = 0; }
+    // breathe into seahorse valley; a found block warps to a new locus
+    const loci = [
+      [-0.743643887037151, 0.13182590420533],
+      [-0.101096, 0.956286], [-1.25066, 0.02012],
+      [0.2549870375144766, -0.0005679790528465], [-1.7862712, 0.0],
+    ];
+    if (S.lastBlocks === undefined) S.lastBlocks = F.blockEvents;
+    if (F.blockEvents > S.lastBlocks) { S.lastBlocks = F.blockEvents; S.tgt = (S.tgt + 1) % loci.length; S.z = Math.min(S.z, 60); }
+    const [px, py] = loci[S.tgt];
+    // log-space zoom cycle, sped up by network level; loops before precision dies
+    S.z *= 1 + dt * (0.22 + F.level * 0.5) * P.speed;
+    if (S.z > 22000) S.z = 0.8;
+    const o = {
+      cx: 0, cy: 0, px, py,
+      zoom: S.z * P.zoom,
+      hue: Viz.hue(0) / 360, sat: Viz.pals[Viz.pal] === 'MONO' ? 0.15 : 0.8,
+      energy: clamp(0.25 + F.level * P.sens * 1.3 + F.beat * 0.5, 0.1, 1.6),
+      mandel: true,
+    };
+    const src = Fractal.init() ? Fractal.render(W, H, o) : Fractal.cpu(S, W, H, o);
+    g.imageSmoothingEnabled = true;
+    g.drawImage(src, 0, 0, W, H);
+    // waveform ribbon across the deep
+    g.globalCompositeOperation = 'lighter';
+    g.strokeStyle = Viz.col(40, 100, 65, 0.5); g.lineWidth = 2;
+    Viz.glowOn(g, Viz.col(40, 100, 55), 0.8);
+    g.beginPath();
+    const n = F.wave.length;
+    for (let i = 0; i < n; i++) {
+      const s2 = F.wave[(F.wavePos + i) % n] * P.sens;
+      const x = i / (n - 1) * W, y = H * 0.86 + s2 * H * 0.1;
+      i ? g.lineTo(x, y) : g.moveTo(x, y);
+    }
+    g.stroke(); Viz.glowOff(g);
+    g.font = `${Math.max(9, H / 42)}px monospace`;
+    g.fillStyle = Viz.col(0, 40, 80, 0.7);
+    g.fillText('DEPTH ' + S.z.toFixed(1) + 'x', 16, H - 14);
+  },
+});
+
+/* ================= 16. HALVING SPIRAL ================= */
 Viz.register({
   name: 'HALVING SPIRAL',
   draw(g, W, H, F, P, t, S) {
