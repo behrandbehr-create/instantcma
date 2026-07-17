@@ -1086,3 +1086,179 @@ Viz.register({
     S.rings = S.rings.filter(r2 => r2.z < 1.05);
   },
 });
+
+/* ================= MILKDROP WARP ENGINE =================
+   The real MilkDrop technique: the previous frame is fed back through a
+   per-pixel warp shader (zoom, rotation, and a sinusoidal displacement field
+   bent by the music), decayed, and fresh "ink" is stamped on top. WebGL
+   ping-pong framebuffers; the ink is drawn on a small 2D canvas per frame. */
+const Warp = {
+  ok: null, size: [0, 0], flip: 0,
+  init() {
+    if (this.ok !== null) return this.ok;
+    try {
+      this.cv = document.createElement('canvas');
+      const gl = this.gl = this.cv.getContext('webgl', { antialias: false, depth: false, preserveDrawingBuffer: true });
+      if (!gl) throw 0;
+      const vs = 'attribute vec2 p;varying vec2 vuv;void main(){vuv=p*.5+.5;gl_Position=vec4(p,0.,1.);}';
+      const fs = `precision mediump float;varying vec2 vuv;
+uniform sampler2D prev;uniform sampler2D ink;
+uniform float decay;uniform float zoom;uniform float rot;uniform float t;uniform float bass;uniform float warp;
+uniform vec2 center;
+void main(){
+  vec2 p=vuv-center;
+  float cr=cos(rot),sr=sin(rot);
+  p=mat2(cr,-sr,sr,cr)*p/zoom;
+  p+=warp*vec2(sin(vuv.y*7.3+t*1.4)+sin(vuv.y*13.1-t*.8),
+               cos(vuv.x*6.7-t*1.1)+cos(vuv.x*11.3+t*.7))*(1.+bass*1.6)*.5;
+  vec2 suv=p+center;
+  vec3 c=texture2D(prev,clamp(suv,0.,1.)).rgb*decay;
+  // slow hue-ish drift: rotate channels a touch so echoes shift color
+  c=mix(c,c.gbr,.012+bass*.01);
+  vec3 k=texture2D(ink,vuv).rgb;
+  gl_FragColor=vec4(min(c+k,1.),1.);
+}`;
+      const cfs = 'precision mediump float;varying vec2 vuv;uniform sampler2D prev;void main(){gl_FragColor=texture2D(prev,vuv);}';
+      const mk = (tp, s) => { const sh = gl.createShader(tp); gl.shaderSource(sh, s); gl.compileShader(sh); if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) throw gl.getShaderInfoLog(sh); return sh; };
+      const prog = (fsrc) => {
+        const pr = gl.createProgram();
+        gl.attachShader(pr, mk(gl.VERTEX_SHADER, vs)); gl.attachShader(pr, mk(gl.FRAGMENT_SHADER, fsrc));
+        gl.linkProgram(pr); if (!gl.getProgramParameter(pr, gl.LINK_STATUS)) throw 0;
+        return pr;
+      };
+      this.pr = prog(fs); this.cp = prog(cfs);
+      const buf = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+      for (const pr of [this.pr, this.cp]) {
+        gl.useProgram(pr);
+        const loc = gl.getAttribLocation(pr, 'p');
+        gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+      }
+      this.u = {};
+      for (const n of ['prev', 'ink', 'decay', 'zoom', 'rot', 't', 'bass', 'warp', 'center'])
+        this.u[n] = gl.getUniformLocation(this.pr, n);
+      this.inkCv = document.createElement('canvas');
+      this.inkG = this.inkCv.getContext('2d');
+      this.ok = true;
+    } catch (e) { this.ok = false; }
+    return this.ok;
+  },
+  _mkTex(w, h) {
+    const gl = this.gl, tx = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tx);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    return tx;
+  },
+  _resize(W, H) {
+    const gl = this.gl, w = Math.max(64, W >> 1), h = Math.max(64, H >> 1);
+    if (this.size[0] === w && this.size[1] === h) return;
+    this.size = [w, h];
+    this.cv.width = w; this.cv.height = h;
+    this.inkCv.width = w; this.inkCv.height = h;
+    this.texs = [this._mkTex(w, h), this._mkTex(w, h)];
+    this.inkTex = this._mkTex(w, h);
+    this.fbs = this.texs.map(tx => {
+      const fb = gl.createFramebuffer();
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tx, 0);
+      return fb;
+    });
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  },
+  render(W, H, o) {
+    const gl = this.gl;
+    this._resize(W, H);
+    const [w, h] = this.size;
+    // upload this frame's ink
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, this.inkTex);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.inkCv);
+    // warp pass: prev + ink → other texture
+    const src = this.flip, dst = 1 - this.flip;
+    gl.useProgram(this.pr);
+    gl.viewport(0, 0, w, h);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbs[dst]);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.texs[src]);
+    gl.uniform1i(this.u.prev, 0); gl.uniform1i(this.u.ink, 1);
+    gl.uniform1f(this.u.decay, o.decay); gl.uniform1f(this.u.zoom, o.zoom);
+    gl.uniform1f(this.u.rot, o.rot); gl.uniform1f(this.u.t, o.t);
+    gl.uniform1f(this.u.bass, o.bass); gl.uniform1f(this.u.warp, o.warp);
+    gl.uniform2f(this.u.center, o.cx, o.cy);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    // copy pass → canvas
+    gl.useProgram(this.cp);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.texs[dst]);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    this.flip = dst;
+    return this.cv;
+  },
+};
+
+/* ================= 23. MILKDROP WARP ================= */
+Viz.register({
+  name: 'MILKDROP WARP',
+  noFade: true,
+  draw(g, W, H, F, P, t, S, dt) {
+    if (!Warp.init()) { // no WebGL: fall back to the flow field's look
+      Viz.modes[9].draw(g, W, H, F, P, t, S, dt);
+      return;
+    }
+    Warp._resize(W, H);
+    const [w, h] = Warp.size;
+    const ig = Warp.inkG;
+    // ---- draw this frame's ink: a waveform ring + spectrum spikes ----
+    ig.clearRect(0, 0, w, h);
+    ig.globalCompositeOperation = 'lighter';
+    const cx = w / 2 + Math.sin(t * 0.31) * w * 0.1, cy = h / 2 + Math.cos(t * 0.23) * h * 0.1;
+    const R = Math.min(w, h) * (0.22 + F.beat * 0.09) * P.zoom;
+    const n = F.wave.length;
+    ig.lineWidth = 2 + F.bass * 3;
+    for (let pass = 0; pass < 2; pass++) {
+      ig.strokeStyle = pass ? Viz.col(130, 100, 60, 0.6) : Viz.col(0, 100, 50, 0.7);
+      ig.beginPath();
+      for (let i = 0; i <= n; i++) {
+        const wv = F.wave[(F.wavePos + i) % n] * P.sens;
+        const a = i / n * TAU + t * 0.25 * (pass ? -1 : 1);
+        const r = R * (1 + wv * 0.45) * (pass ? 0.6 : 1);
+        const x = cx + Math.cos(a) * r, y = cy + Math.sin(a) * r;
+        i ? ig.lineTo(x, y) : ig.moveTo(x, y);
+      }
+      ig.closePath(); ig.stroke();
+    }
+    // spectrum spikes burst outward on the loudest bins
+    for (let i = 0; i < F.N; i += 4) {
+      const v = Viz.spec(i, F);
+      if (v < 0.3) continue;
+      const a = i / F.N * TAU - t * 0.4;
+      ig.strokeStyle = Viz.col(i * 3 + 40, 100, 65, v * 0.8);
+      ig.lineWidth = 1.5 + v * 2;
+      ig.beginPath();
+      ig.moveTo(cx + Math.cos(a) * R * 1.1, cy + Math.sin(a) * R * 1.1);
+      ig.lineTo(cx + Math.cos(a) * R * (1.15 + v * 0.5), cy + Math.sin(a) * R * (1.15 + v * 0.5));
+      ig.stroke();
+    }
+    if (F.blockFlash > 0.75) {
+      ig.fillStyle = Viz.col(40, 100, 60, (F.blockFlash - 0.75) * 1.2);
+      ig.beginPath(); ig.arc(cx, cy, R * 1.6, 0, TAU); ig.fill();
+    }
+    // ---- feedback warp ----
+    const out = Warp.render(W, H, {
+      decay: lerp(0.88, 0.985, clamp(P.trails, 0, 1)),
+      zoom: 1.012 + F.bass * 0.014 + F.beat * 0.03,
+      rot: Math.sin(t * 0.21) * 0.024 * P.speed + clamp(F.S.wind, -1, 1) * 0.012,
+      t, bass: F.bass,
+      warp: 0.0035 * P.density * (1 + F.level),
+      cx: 0.5 + Math.sin(t * 0.17) * 0.06, cy: 0.5 + Math.cos(t * 0.13) * 0.06,
+    });
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.imageSmoothingEnabled = true;
+    g.drawImage(out, 0, 0, W, H);
+  },
+});

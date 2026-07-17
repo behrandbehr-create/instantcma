@@ -213,8 +213,17 @@ body.crt #crt-ov { display:block; }
 #viz-btns { display:flex; flex-direction:column; gap:3px; }
 #viz-btns .btn3d { font-size:8px; padding:1px 6px; }
 
+#preset-strip { display:flex; align-items:center; gap:5px; padding:4px 6px 2px; }
+#preset-strip .ps-label { font-size:8px; letter-spacing:2px; opacity:.7; }
+#preset-strip .ps-slot { width:24px; height:18px; padding:0; font-size:9px; opacity:.5; }
+#preset-strip .ps-slot.has { opacity:1; color:var(--la); }
+#preset-strip .ps-slot.cur { color:var(--ac); text-shadow:0 0 6px var(--ac); border-color:var(--bd) var(--bl) var(--bl) var(--bd); }
+#preset-strip .ps-save { height:18px; font-size:8px; padding:0 6px; }
+#preset-strip .ps-save.arm { color:#ff4d5e; text-shadow:0 0 6px #ff4d5e; animation:blink .7s infinite; }
+#preset-strip .ps-hint { font-size:8px; letter-spacing:1px; opacity:.55; margin-left:auto; }
+
 body.fs #win-viz { left:0 !important; top:0 !important; width:100vw !important; height:100vh; z-index:9000 !important; padding:0; border:none; }
-body.fs #win-viz .titlebar, body.fs #viz-deck { display:none; }
+body.fs #win-viz .titlebar, body.fs #viz-deck, body.fs #preset-strip { display:none; }
 body.fs #viz-screen { height:100vh; border:none; }
 body.fs .win:not(#win-viz) { display:none; }
 

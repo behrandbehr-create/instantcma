@@ -19,13 +19,18 @@ EQ shapes which network inputs drive the visuals, and the playlist is the chain 
 | **Trade Tape** | — | aggr.trade-style live tape: every trade with buy/sell coloring and size-scaled bars, whales in big type, block separators, trades/min + buy% header (`TAPE` button, `T`) |
 | **Data Feeds** | options | Live-wire toggles per feed with status LEDs + msg/s meters (`O` clutterbar, `D`) |
 
-## Visualizations (22 modes, keys 1–9,0,←→)
+## Visualizations (23 modes, keys 1–9,0,←→)
 
 Spectrum Classic · Oscilloscope · Matrix Rain · TX Fountain · Mempool Sea · Block City ·
 Warp Tunnel · Radial Pulse · Plasma Fire · Flow Field · Price Ribbon · Whale Sonar ·
 **Pressure Wind** · **Julia Drift** · **Mandel Deep** · Halving Spiral · **AVS
 Superscope** · **Geiss Terrain** · **G-Force Waves** · **Beat Cube** · **Bar Galaxy 3D**
-· **Tunnel Scope**.
+· **Tunnel Scope** · **MilkDrop Warp**.
+
+**MilkDrop Warp** uses the genuine MilkDrop technique: the previous frame feeds back
+through a WebGL per-pixel warp shader (zoom, rotation, and a sinusoidal displacement
+field bent by the bass), decays with a slow color drift, and fresh waveform ink is
+stamped on top each frame — TRAILS controls the echo length, DENSITY the warp amount.
 
 The last six are homages to the classic plugin canon — AVS superscopes, Geiss plasma
 mountains, G-Force layered waves, demo-scene wireframe cubes, WhiteCap-style 3D bar
@@ -75,6 +80,11 @@ live wire is down (badge switches from `LIVE ●` to `SIM ◌`).
 The *Higgsfield Ultra* skin chrome texture and the nebula backdrop behind Warp Tunnel /
 Radial Pulse / Halving Spiral were generated with the Higgsfield connector (nano banana 2)
 and load from the Higgsfield CDN; everything degrades gracefully if they're unreachable.
+
+## Presets
+
+The strip under the deck stores four complete looks — mode, all eight dials, palette,
+data source, and skin. Click **SAVE** then a slot to store; click a slot to load.
 
 ## Sound (aggr.trade-style)
 

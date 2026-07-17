@@ -237,6 +237,54 @@ const Deck = {
   },
 };
 
+/* =============== preset slots =============== */
+const Presets = {
+  slots: CFG.presets || [null, null, null, null],
+  arm: false,
+  init() {
+    $('#ps-save').addEventListener('click', () => {
+      this.arm = !this.arm;
+      $('#ps-save').classList.toggle('arm', this.arm);
+      $('#ps-hint').textContent = this.arm ? 'NOW CLICK A SLOT TO STORE' : 'CLICK A SLOT TO LOAD';
+    });
+    $$('#preset-strip .ps-slot').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const i = +btn.dataset.slot;
+        if (this.arm) this.save(i); else this.load(i);
+      });
+    });
+    this.paint();
+  },
+  save(i) {
+    this.slots[i] = { mode: Viz.idx, P: { ...Viz.P }, pal: Viz.pal, src: Feeds.srcIdx, skin: Skin.idx };
+    this.arm = false;
+    $('#ps-save').classList.remove('arm');
+    $('#ps-hint').textContent = 'STORED IN SLOT ' + (i + 1);
+    Store.save({ presets: this.slots });
+    this.paint(i);
+    Deck.toast('PRESET ' + (i + 1) + ' SAVED');
+  },
+  load(i) {
+    const s = this.slots[i];
+    if (!s) { $('#ps-hint').textContent = 'SLOT ' + (i + 1) + ' EMPTY — SAVE FIRST'; return; }
+    Object.assign(Viz.P, s.P);
+    Viz.pal = s.pal; Feeds.srcIdx = s.src;
+    $('#src-name').textContent = Feeds.srcModes[Feeds.srcIdx];
+    if (s.skin !== undefined && s.skin < SKINS.length) { Skin.apply(s.skin); SkinsUI.applyHue(); }
+    Viz.set(s.mode); Deck.updateModeLCD();
+    Deck.knobs.forEach(k => k.render());
+    Store.save({ viz: { ...Viz.P }, pal: Viz.pal, src: Feeds.srcIdx });
+    this.paint(i);
+    Deck.toast('PRESET ' + (i + 1) + ': ' + Viz.modes[Viz.idx].name);
+  },
+  paint(cur) {
+    $$('#preset-strip .ps-slot').forEach((b, i) => {
+      b.classList.toggle('has', !!this.slots[i]);
+      b.classList.toggle('cur', i === cur);
+    });
+  },
+};
+
 /* =============== network EQ =============== */
 const EQ = {
   sliders: {}, auto: false,
@@ -413,6 +461,15 @@ const Main = {
     this.mark('tp-play');
     // toggles
     $('#tg-snd').addEventListener('click', () => $('#tg-snd').classList.toggle('on', Sound.toggle()));
+    if (CFG.sndVol !== undefined) Sound.setVol(CFG.sndVol);
+    $('#tg-snd').title = 'Network audio (M) · scroll wheel = volume ' + Math.round(Sound.vol * 100) + '%';
+    $('#tg-snd').addEventListener('wheel', (e) => {
+      e.preventDefault();
+      Sound.setVol(clamp(Sound.vol + (e.deltaY < 0 ? 0.08 : -0.08), 0, 1));
+      Store.save({ sndVol: Sound.vol });
+      $('#tg-snd').title = 'Network audio (M) · scroll wheel = volume ' + Math.round(Sound.vol * 100) + '%';
+      Deck.toast('SOUND ' + Math.round(Sound.vol * 100) + '%');
+    }, { passive: false });
     $('#tg-tape').addEventListener('click', () => $('#tg-tape').classList.toggle('on', WM.toggle('win-tape')));
     $('#tg-eq').addEventListener('click', () => WM.toggle('win-eq'));
     $('#tg-pl').addEventListener('click', () => WM.toggle('win-pl'));
@@ -641,7 +698,7 @@ function initKeys() {
 
 /* =============== boot =============== */
 addEventListener('DOMContentLoaded', () => {
-  WM.init(); SkinsUI.init(); Main.init(); EQ.init(); Playlist.init(); FeedsUI.init(); TapeUI.init(); Marquee.init(); Deck.init(); initKeys();
+  WM.init(); SkinsUI.init(); Main.init(); EQ.init(); Playlist.init(); FeedsUI.init(); TapeUI.init(); Marquee.init(); Deck.init(); Presets.init(); initKeys();
   Sound.init();
   Feeds.start();
   const splash = $('#splash');
