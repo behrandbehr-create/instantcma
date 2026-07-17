@@ -1,0 +1,65 @@
+//@version=6
+// ─────────────────────────────────────────────────────────────────────────────
+// IC (9, 26, 52) — Ichimoku Cloud
+//
+// Recreation of the "IC(9,26,52)" indicator seen on crypto exchange apps.
+// It is the classic Ichimoku Kinko Hyo with its five components:
+//
+//   Conversion (Tenkan-sen)  = midpoint of highest high / lowest low, 9 bars
+//   Base       (Kijun-sen)   = midpoint of highest high / lowest low, 26 bars
+//   Lagging    (Chikou span) = close, plotted 26 bars BACK
+//   Leading A  (Senkou A)    = (Conversion + Base) / 2, plotted 26 bars FORWARD
+//   Leading B  (Senkou B)    = midpoint of highest high / lowest low, 52 bars,
+//                              plotted 26 bars FORWARD
+//   Cloud (Kumo)             = fill between Leading A and Leading B
+//
+// Colors default to the exchange-app style from the screenshot:
+//   Conversion = orange, Base = yellow, Lagging = purple,
+//   Leading A/B = blue tones, cloud = teal (bullish) / gray (bearish).
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("IC (Ichimoku Cloud) 9,26,52", shorttitle = "IC", overlay = true)
+
+// ── Inputs ───────────────────────────────────────────────────────────────────
+convLen  = input.int(9,  minval = 1, title = "Conversion Line Length (Tenkan)")
+baseLen  = input.int(26, minval = 1, title = "Base Line Length (Kijun)")
+spanBLen = input.int(52, minval = 1, title = "Leading Span B Length (Senkou B)")
+dispLen  = input.int(26, minval = 1, title = "Displacement (Lagging / Leading offset)")
+
+colConv   = input.color(color.rgb(255, 106, 0),   title = "Conversion", group = "Colors")
+colBase   = input.color(color.rgb(240, 185, 11),  title = "Base",       group = "Colors")
+colLag    = input.color(color.rgb(123, 63, 228),  title = "Lagging",    group = "Colors")
+colLeadA  = input.color(color.rgb(46, 154, 175),  title = "Leading A",  group = "Colors")
+colLeadB  = input.color(color.rgb(112, 122, 138), title = "Leading B",  group = "Colors")
+colCloudUp = input.color(color.new(color.rgb(38, 148, 168), 60), title = "Cloud (A above B)", group = "Colors")
+colCloudDn = input.color(color.new(color.rgb(112, 122, 138), 60), title = "Cloud (A below B)", group = "Colors")
+
+// ── Calculations ─────────────────────────────────────────────────────────────
+donchian(len) => math.avg(ta.lowest(low, len), ta.highest(high, len))
+
+conversion = donchian(convLen)   // Tenkan-sen
+baseLine   = donchian(baseLen)   // Kijun-sen
+leadA      = math.avg(conversion, baseLine)  // Senkou Span A (before displacement)
+leadB      = donchian(spanBLen)              // Senkou Span B (before displacement)
+
+// ── Plots ────────────────────────────────────────────────────────────────────
+plot(conversion, title = "Conversion (Tenkan)", color = colConv, linewidth = 2)
+plot(baseLine,   title = "Base (Kijun)",        color = colBase, linewidth = 2)
+plot(close,      title = "Lagging (Chikou)",    color = colLag,  linewidth = 2, offset = -dispLen)
+
+pA = plot(leadA, title = "Leading A (Senkou A)", color = colLeadA, offset = dispLen - 1)
+pB = plot(leadB, title = "Leading B (Senkou B)", color = colLeadB, offset = dispLen - 1)
+
+fill(pA, pB, color = leadA >= leadB ? colCloudUp : colCloudDn, title = "Cloud (Kumo)")
+
+// ── Optional signal alerts (TK cross & cloud breakout) ───────────────────────
+tkBull = ta.crossover(conversion, baseLine)
+tkBear = ta.crossunder(conversion, baseLine)
+cloudTopNow = math.max(leadA[dispLen - 1], leadB[dispLen - 1])
+cloudBotNow = math.min(leadA[dispLen - 1], leadB[dispLen - 1])
+breakUp   = ta.crossover(close, cloudTopNow)
+breakDown = ta.crossunder(close, cloudBotNow)
+
+alertcondition(tkBull,    title = "TK Cross Bullish",  message = "Ichimoku: Conversion crossed above Base")
+alertcondition(tkBear,    title = "TK Cross Bearish",  message = "Ichimoku: Conversion crossed below Base")
+alertcondition(breakUp,   title = "Cloud Breakout Up", message = "Ichimoku: Price broke above the cloud")
+alertcondition(breakDown, title = "Cloud Breakdown",   message = "Ichimoku: Price broke below the cloud")
