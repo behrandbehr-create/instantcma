@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BTCAMP — It Really Whips the Blockchain's Ass</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='80' font-size='80'>⚡</text></svg>">
+<link rel="stylesheet" href="css/btcamp.css">
+</head>
+<body>
+<div id="desktop">
+
+  <!-- ================= MAIN DECK ================= -->
+  <div class="win tex" id="win-main" style="left:40px; top:36px;">
+    <div class="titlebar" data-win="win-main">
+      <div class="tb-btn" id="btn-menu" title="Main menu / skins">≡</div>
+      <div class="grip"></div>
+      <div class="title">BTCAMP</div>
+      <div class="grip"></div>
+      <div class="tb-btn" data-shade="win-main" title="Shade">–</div>
+      <div class="tb-btn" data-close="win-main" title="Close">×</div>
+    </div>
+    <div id="clutter">
+      <div class="cb" data-cb="O" title="Options (data feeds)">O</div>
+      <div class="cb" data-cb="A" title="About">A</div>
+      <div class="cb" data-cb="I" title="Block info">I</div>
+      <div class="cb" data-cb="D" title="Double-size vis">D</div>
+      <div class="cb" data-cb="V" title="Visualizer window">V</div>
+    </div>
+    <div id="main-body">
+      <div id="main-lcd">
+        <div class="lcd" id="big-num" title="Click: price / block height / sats per dollar">
+          <small class="dim" id="big-label">BTC · USD</small>
+          <span id="big-value">—</span>
+        </div>
+        <div id="main-info">
+          <div class="lcd" id="marquee-box"><span id="marquee">BTCAMP LOADING NETWORK…</span></div>
+          <div id="stat-row">
+            <div class="lcd" title="Fastest confirm fee"><b id="st-fee">–</b> SAT/VB</div>
+            <div class="lcd" title="Unconfirmed transaction rate"><b id="st-tps">–</b> TX/S</div>
+            <div class="lcd" title="Mempool depth"><b id="st-mem">–</b> MB</div>
+            <div class="lcd" id="st-live" title="Feed status"><b>·····</b></div>
+          </div>
+          <div class="lcd" id="mini-vis" title="Click to cycle mini-vis"><canvas id="mini-canvas"></canvas></div>
+        </div>
+      </div>
+      <div id="seek-row">
+        <div id="seek-label"><span>LAST BLOCK</span><span id="seek-eta">NEXT BLOCK ~10:00</span></div>
+        <div class="hslider" id="seek"><div class="fill"></div><div class="thumb"></div></div>
+      </div>
+      <div id="ctl-row">
+        <div id="transport">
+          <div class="btn3d" id="tp-prev" title="Previous block">⏮</div>
+          <div class="btn3d" id="tp-play" title="Live">▶</div>
+          <div class="btn3d" id="tp-pause" title="Freeze signal">⏸</div>
+          <div class="btn3d" id="tp-stop" title="Silence all inputs">⏹</div>
+          <div class="btn3d" id="tp-next" title="Jump to tip">⏭</div>
+          <div class="btn3d" id="tp-eject" title="Skins">⏏</div>
+        </div>
+        <div id="vol-wrap"><span>SENSITIVITY</span><div class="hslider" id="vol"><div class="fill"></div><div class="thumb"></div></div></div>
+        <div id="bal-wrap"><span>CHAIN ⟷ MARKET</span><div class="hslider" id="bal"><div class="fill"></div><div class="thumb"></div></div></div>
+        <div id="extra-toggles">
+          <div class="btn3d" id="tg-shuffle" title="Auto-cycle visualizations">SHUF</div>
+          <div class="btn3d on" id="tg-eq" title="Network EQ window">EQ</div>
+          <div class="btn3d on" id="tg-pl" title="Block chain playlist">PL</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= NETWORK EQ ================= -->
+  <div class="win tex" id="win-eq" style="left:40px; top:288px;">
+    <div class="titlebar" data-win="win-eq">
+      <div class="grip"></div>
+      <div class="title">BTCAMP NETWORK EQUALIZER</div>
+      <div class="grip"></div>
+      <div class="tb-btn" data-shade="win-eq">–</div>
+      <div class="tb-btn" data-close="win-eq">×</div>
+    </div>
+    <div id="eq-body">
+      <div id="eq-top">
+        <div class="btn3d on" id="eq-on" title="EQ gains applied to signal">ON</div>
+        <div class="btn3d" id="eq-auto" title="Auto-ride gains with network activity">AUTO</div>
+        <div class="lcd" id="eq-curve"><canvas id="eq-canvas"></canvas></div>
+        <div class="btn3d" id="eq-reset" title="Reset all bands">RESET</div>
+      </div>
+      <div id="eq-bands"><!-- built by app.js: PREAMP + 10 data bands --></div>
+    </div>
+  </div>
+
+  <!-- ================= BLOCK CHAIN (playlist) ================= -->
+  <div class="win tex" id="win-pl" style="left:40px; top:520px;">
+    <div class="titlebar" data-win="win-pl">
+      <div class="grip"></div>
+      <div class="title">BTCAMP BLOCK CHAIN</div>
+      <div class="grip"></div>
+      <div class="tb-btn" data-shade="win-pl">–</div>
+      <div class="tb-btn" data-close="win-pl">×</div>
+    </div>
+    <div class="lcd" id="pl-list"></div>
+    <div id="pl-foot">
+      <div class="btn3d" id="pl-open" title="Open selected block on mempool.space">INSPECT</div>
+      <div class="lcd" id="pl-total">0 BLOCKS</div>
+      <div class="btn3d" id="pl-clear" title="Keep newest 5">TRIM</div>
+    </div>
+  </div>
+
+  <!-- ================= VISUALIZER ================= -->
+  <div class="win tex" id="win-viz" style="left:620px; top:36px;">
+    <div class="titlebar" data-win="win-viz">
+      <div class="grip"></div>
+      <div class="title">BTCAMP NETWORK VISUALIZER — MILKSAT ENGINE</div>
+      <div class="grip"></div>
+      <div class="tb-btn" data-shade="win-viz">–</div>
+      <div class="tb-btn" data-close="win-viz">×</div>
+    </div>
+    <div id="viz-screen">
+      <canvas id="viz-canvas"></canvas>
+      <div id="crt-ov"></div>
+      <div id="viz-osd"></div>
+      <div id="viz-block-osd"></div>
+      <div id="viz-toast"></div>
+    </div>
+    <div id="viz-deck">
+      <div class="lcd" id="viz-mode-lcd">
+        <span class="arrow" id="viz-prev">◀</span>
+        <span class="name" id="viz-name">SPECTRUM CLASSIC</span>
+        <span class="arrow" id="viz-next">▶</span>
+      </div>
+      <div id="viz-knobs"><!-- built by app.js --></div>
+      <div id="viz-btns">
+        <div class="btn3d" id="viz-auto" title="Cycle modes every 18s">AUTO</div>
+        <div class="btn3d" id="viz-rnd" title="Randomize dials">RND</div>
+        <div class="btn3d" id="viz-crt" title="CRT scanline overlay">CRT</div>
+        <div class="btn3d" id="viz-fs" title="Fullscreen (F / dblclick screen)">FULL</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= SKINS ================= -->
+  <div class="win hidden" id="win-skins" style="left:1180px; top:120px;">
+    <div class="titlebar" data-win="win-skins">
+      <div class="grip"></div>
+      <div class="title">SKIN BROWSER · TOP 25</div>
+      <div class="grip"></div>
+      <div class="tb-btn" data-close="win-skins">×</div>
+    </div>
+    <div class="lcd" id="skin-list"></div>
+  </div>
+
+  <!-- ================= DATA FEEDS ================= -->
+  <div class="win hidden" id="win-feeds" style="left:1180px; top:560px;">
+    <div class="titlebar" data-win="win-feeds">
+      <div class="grip"></div>
+      <div class="title">DATA FEEDS · LIVE WIRES</div>
+      <div class="grip"></div>
+      <div class="tb-btn" data-close="win-feeds">×</div>
+    </div>
+    <div id="feed-list"><!-- built by app.js --></div>
+    <div id="feeds-note">ALL FEEDS CONNECT DIRECTLY FROM YOUR BROWSER.<br>
+      MEMPOOL.SPACE WS · BLOCKCHAIN.INFO WS · COINBASE WS · REST POLL.<br>
+      SIM AUTO-ENGAGES ONLY WHEN EVERY LIVE WIRE IS DOWN.</div>
+  </div>
+
+</div>
+
+<div id="splash">
+  <div class="box">
+    <h1>BTCAMP</h1>
+    <p>IT REALLY WHIPS THE BLOCKCHAIN'S ASS</p>
+    <div class="hint">
+      1–9,0 SWITCH VIS · F FULLSCREEN · SPACE FREEZE · S SKINS · D FEEDS<br>
+      CLICK ANYWHERE TO JACK IN
+    </div>
+  </div>
+</div>
+
+<script src="js/skins.js"></script>
+<script src="js/data.js"></script>
+<script src="js/viz.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
