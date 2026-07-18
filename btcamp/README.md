@@ -94,6 +94,13 @@ whales gong; a found block booms; round-number crossings chime. A compressor kee
 frenzies from clipping. All knobs, sliders, and dials also respond to the scroll wheel,
 and drags are pointer-captured — no text selection, works on touch.
 
+## Mobile
+
+Phones get a dedicated shell (auto-detected): the visualizer fills the screen with a
+price/status ticker on top and a touch deck below — **swipe left/right on the visuals to
+change modes**, and SRC / COLOR / SOUND / SKIN buttons plus a pull-up **DIALS** sheet
+with slider versions of all eight dials. Desktop keeps the full windowed rig.
+
 ## Keys
 
 `1–9,0` vis modes · `←→` prev/next mode · `F` fullscreen · `X` data source · `C` colors ·

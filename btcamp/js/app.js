@@ -750,9 +750,110 @@ const PerfGuard = {
   },
 };
 
+/* =============== mobile mode =============== *
+ * Phones get a dedicated shell: the visualizer fills the screen, a slim
+ * ticker up top, a touch deck below, dials as sliders in a pull-up sheet,
+ * and swipe left/right to change modes. Desktop keeps the windowed rig. */
+const Mobile = {
+  on: false,
+  detect() {
+    // NOTE: innerWidth lies on phones — the desktop windows force the layout
+    // viewport wide open. screen.* reports the real device size.
+    const dev = Math.min(screen.width, screen.height);
+    return (matchMedia('(pointer:coarse)').matches && dev < 900) || dev < 500;
+  },
+  init() {
+    if (!this.detect()) return;
+    this.on = true;
+    document.body.classList.add('mobile');
+    // desktop windows are hidden now — snap the layout viewport back to device width
+    const mv = document.querySelector('meta[name="viewport"]');
+    if (mv) mv.content = 'width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover';
+    scrollTo(0, 0);
+    // top ticker
+    const top = document.createElement('div');
+    top.id = 'm-top';
+    top.innerHTML = `<span class="m-logo">BTCAMP</span><span id="m-price">—</span><span id="m-delta"></span><span id="m-live">·</span>`;
+    document.body.appendChild(top);
+    // bottom deck
+    const deck = document.createElement('div');
+    deck.id = 'm-deck';
+    deck.innerHTML = `
+      <div id="m-mode-row">
+        <div class="m-btn m-arrow" id="m-prev">◀</div>
+        <div class="lcd" id="m-mode">${Viz.modes[Viz.idx].name}</div>
+        <div class="m-btn m-arrow" id="m-next">▶</div>
+      </div>
+      <div id="m-btn-row">
+        <div class="m-btn" id="m-src">SRC</div>
+        <div class="m-btn" id="m-pal">COLOR</div>
+        <div class="m-btn" id="m-snd">SOUND</div>
+        <div class="m-btn" id="m-dials">DIALS</div>
+        <div class="m-btn" id="m-skin">SKIN</div>
+      </div>`;
+    document.body.appendChild(deck);
+    // pull-up dial sheet
+    const sheet = document.createElement('div');
+    sheet.id = 'm-sheet';
+    sheet.innerHTML = '<div id="m-sheet-title">DIALS · <span id="m-sheet-close">CLOSE ✕</span></div><div id="m-sliders"></div>';
+    document.body.appendChild(sheet);
+    Deck.defs.forEach(d => {
+      const row = document.createElement('div');
+      row.className = 'm-srow';
+      row.innerHTML = `<label>${d.label}</label><input type="range" min="0" max="1000"><span class="m-sval"></span>`;
+      const inp = row.querySelector('input'), val = row.querySelector('.m-sval');
+      const paint = () => {
+        inp.value = Math.round((Viz.P[d.key] - d.min) / (d.max - d.min) * 1000);
+        val.textContent = d.fmt ? d.fmt(Viz.P[d.key]) : Viz.P[d.key].toFixed(2);
+      };
+      inp.addEventListener('input', () => {
+        let v = d.min + (inp.value / 1000) * (d.max - d.min);
+        if (d.step) v = Math.round(v / d.step) * d.step;
+        Viz.P[d.key] = v; paint(); Deck.saveParams();
+      });
+      paint();
+      row._paint = paint;
+      $('#m-sliders').appendChild(row);
+    });
+    // wire the deck
+    const mode = () => { $('#m-mode').textContent = Viz.modes[Viz.idx].name; };
+    $('#m-prev').addEventListener('click', () => { Viz.prev(); mode(); });
+    $('#m-next').addEventListener('click', () => { Viz.next(); mode(); });
+    $('#m-src').addEventListener('click', () => { Feeds.cycleSrc(1); Deck.toast('SOURCE: ' + Feeds.srcModes[Feeds.srcIdx]); Store.save({ src: Feeds.srcIdx }); });
+    $('#m-pal').addEventListener('click', () => Deck.cyclePal());
+    $('#m-snd').addEventListener('click', (e) => e.target.classList.toggle('on', Sound.toggle()));
+    $('#m-dials').addEventListener('click', () => {
+      sheet.classList.toggle('open');
+      $$('#m-sliders .m-srow').forEach(r => r._paint && r._paint());
+    });
+    $('#m-sheet-close').addEventListener('click', () => sheet.classList.remove('open'));
+    $('#m-skin').addEventListener('click', () => { Skin.next(); SkinsUI.applyHue(); Deck.toast(SKINS[Skin.idx].name.toUpperCase()); });
+    // swipe on the visualizer = change mode; the canvas is display-only on touch
+    let sx = 0, sy = 0;
+    const scr = $('#viz-screen');
+    scr.addEventListener('touchstart', (e) => { sx = e.touches[0].clientX; sy = e.touches[0].clientY; }, { passive: true });
+    scr.addEventListener('touchend', (e) => {
+      const dx = e.changedTouches[0].clientX - sx, dy = e.changedTouches[0].clientY - sy;
+      if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) { dx < 0 ? Viz.next() : Viz.prev(); mode(); }
+    }, { passive: true });
+    // phones start in perf-friendly mode: DPR 1.5, no auto-cycle needed
+    Viz.setDprCap(1.5);
+  },
+  tick() {
+    if (!this.on) return;
+    const S = Feeds.S;
+    $('#m-price').textContent = S.price ? '$' + Math.round(S.price).toLocaleString() : '—';
+    const d = $('#m-delta');
+    d.textContent = S.priceOpen ? (S.priceDelta >= 0 ? '▲' : '▼') + Math.abs(S.priceDelta).toFixed(2) + '%' : '';
+    d.className = S.priceDelta >= 0 ? 'up' : 'down';
+    $('#m-live').textContent = Feeds.paused ? 'FROZEN' : Feeds.anyLive() ? 'LIVE ●' : Feeds.conn.sim === 'live' ? 'SIM ◌' : '···';
+  },
+};
+
 /* =============== boot =============== */
 addEventListener('DOMContentLoaded', () => {
   WM.init(); SkinsUI.init(); Main.init(); EQ.init(); Playlist.init(); FeedsUI.init(); TapeUI.init(); Marquee.init(); Deck.init(); Presets.init(); Diag.init(); initKeys();
+  Mobile.init();
   Sound.init();
   Feeds.start();
   const splash = $('#splash');
@@ -769,7 +870,7 @@ addEventListener('DOMContentLoaded', () => {
     Main.drawMini();
     PerfGuard.tick(dt);
     uiT += dt;
-    if (uiT > 0.25) { uiT = 0; Main.update(); EQ.tick(now / 1000, 0.25); FeedsUI.render(); TapeUI.tick(); Diag.tick(); }
+    if (uiT > 0.25) { uiT = 0; Main.update(); EQ.tick(now / 1000, 0.25); FeedsUI.render(); TapeUI.tick(); Diag.tick(); Mobile.tick(); }
     const osd = $('#viz-block-osd');
     osd.textContent = Feeds.blockFlash > 0 ? '⚡ NEW BLOCK' : '';
     requestAnimationFrame(loop);
