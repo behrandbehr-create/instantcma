@@ -698,7 +698,7 @@ function initKeys() {
 }
 
 /* =============== diagnostics & self-defense =============== */
-const BUILD = 'v8';
+const BUILD = 'v10';
 const Diag = {
   visible: false,
   init() {
@@ -730,6 +730,7 @@ const Diag = {
       `FPS ${Viz.fps.toFixed(0)}${Viz.perf ? ' · PERF MODE' : ''} · CANVAS ${Viz.W}×${Viz.H} · DPR≤${Viz.dprCap}<br>` +
       `WEBGL ${gl ? 'OK' : 'NO'} · WARP ${Warp.ok === null ? '—' : Warp.ok ? 'OK' : 'NO'}<br>` +
       `FEEDS mempool:${F.conn.mempool} chain:${F.conn.chain} price:${F.conn.price} rest:${F.conn.rest} sim:${F.conn.sim}<br>` +
+      `DATA AGE ${['mempool', 'chain', 'price'].map(k => k + ':' + (F.lastMsg[k] ? ((performance.now() - F.lastMsg[k]) / 1000).toFixed(0) + 's' : '—')).join(' ')}<br>` +
       `MSG/S ${F.msgRate.mempool.toFixed(1)} / ${F.msgRate.chain.toFixed(1)} / ${F.msgRate.price.toFixed(1)} · TX/S ${F.S.txRate.toFixed(1)}<br>` +
       `SIGNAL level ${F.level.toFixed(2)} bass ${F.bass.toFixed(2)} beat ${F.beat.toFixed(2)} · SRC ${F.srcModes[F.srcIdx]}<br>` +
       (Viz.lastErr ? `LAST VIZ ERROR: ${Viz.lastErr}` : 'NO VIZ ERRORS');
@@ -861,19 +862,29 @@ addEventListener('DOMContentLoaded', () => {
   splash.addEventListener('click', go);
   setTimeout(go, 3500);
 
+  // returning to the tab: sockets may have been frozen — audio too
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && Sound.enabled && Sound.ctx && Sound.ctx.state === 'suspended') Sound.ctx.resume();
+  });
+
   let last = performance.now(), uiT = 0;
   const loop = (now) => {
-    const dt = Math.min((now - last) / 1000, 0.25); last = now;
-    Feeds.tick(dt);
-    Viz.frame(dt);
-    Marquee.tick(dt);
-    Main.drawMini();
-    PerfGuard.tick(dt);
-    uiT += dt;
-    if (uiT > 0.25) { uiT = 0; Main.update(); EQ.tick(now / 1000, 0.25); FeedsUI.render(); TapeUI.tick(); Diag.tick(); Mobile.tick(); }
-    const osd = $('#viz-block-osd');
-    osd.textContent = Feeds.blockFlash > 0 ? '⚡ NEW BLOCK' : '';
+    // re-arm FIRST and shield the body: one bad frame must never kill the app
     requestAnimationFrame(loop);
+    try {
+      const dt = Math.min((now - last) / 1000, 0.25); last = now;
+      Feeds.tick(dt);
+      Viz.frame(dt);
+      Marquee.tick(dt);
+      Main.drawMini();
+      PerfGuard.tick(dt);
+      uiT += dt;
+      if (uiT > 0.25) { uiT = 0; Main.update(); EQ.tick(now / 1000, 0.25); FeedsUI.render(); TapeUI.tick(); Diag.tick(); Mobile.tick(); }
+      const osd = $('#viz-block-osd');
+      osd.textContent = Feeds.blockFlash > 0 ? '⚡ NEW BLOCK' : '';
+    } catch (e) {
+      Diag.err('loop: ' + (e.message || e));
+    }
   };
   requestAnimationFrame(loop);
 });

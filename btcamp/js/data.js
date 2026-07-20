@@ -252,15 +252,37 @@ const Feeds = {
   start() {
     this.connect('mempool'); this.connect('chain'); this.connect('price');
     this.restPoll(); this.timers.rest = setInterval(() => this.restPoll(), 60000);
-    // auto-arm the simulator if nothing is live after 5s
+    // auto-arm the simulator if nothing is DELIVERING after 5s; re-check often
     setTimeout(() => this.checkSim(), 5000);
-    this.timers.sim = setInterval(() => this.checkSim(), 5000);
+    this.timers.sim = setInterval(() => this.checkSim(), 3000);
+    this.timers.wd = setInterval(() => this.watchdog(), 5000);
+    // mobile browsers freeze sockets in background tabs — verify on wake
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) return;
+      for (const k of ['mempool', 'chain', 'price'])
+        if (this.enabled[k] && !this.fresh(k, 10000)) this.connect(k);
+      this.checkSim();
+    });
   },
 
   checkSim() {
-    const live = ['mempool', 'chain', 'price'].some(k => this.conn[k] === 'live');
+    // "live" means DELIVERING, not merely connected — a half-open socket
+    // that reports open but never sends data must not block the fallback
+    const live = ['mempool', 'chain', 'price'].some(k => this.fresh(k, 8000));
     if (!live && this.enabled.sim && this.conn.sim !== 'live') this.startSim();
     if ((live || !this.enabled.sim) && this.conn.sim === 'live') this.stopSim();
+  },
+
+  /* stale-socket watchdog: tear down and redial any "live" feed that has
+     delivered nothing for 30s (Coinbase heartbeats every 1s, mempool.space
+     stats every ~10s, blockchain.info pongs our 20s pings — silence = dead) */
+  watchdog() {
+    for (const k of ['mempool', 'chain', 'price']) {
+      if (this.conn[k] === 'live' && !this.fresh(k, 30000)) {
+        this.conn[k] = 'error'; this.emit('conn');
+        this.connect(k);
+      }
+    }
   },
 
   toggleFeed(k, state) {
@@ -271,7 +293,13 @@ const Feeds = {
     this.emit('conn');
   },
 
+  /* liveness: a socket that SAYS it's connected but delivers nothing is dead.
+     lastMsg tracks real data arrival; fresh() is the only truth about a feed. */
+  lastMsg: { mempool: 0, chain: 0, price: 0 },
+  fresh(k, ms) { return this.conn[k] === 'live' && performance.now() - this.lastMsg[k] < ms; },
+
   disconnect(k) {
+    clearInterval(this.timers['ka_' + k]);
     if (this.sockets[k]) { try { this.sockets[k].onclose = null; this.sockets[k].close(); } catch (e) {} }
     this.sockets[k] = null; this.conn[k] = 'off'; this.emit('conn');
   },
@@ -288,20 +316,28 @@ const Feeds = {
     let ws;
     try { ws = new WebSocket(urls[k]); } catch (e) { this.conn[k] = 'error'; this.retry(k); return; }
     this.sockets[k] = ws;
+    const send = (o) => { try { if (ws.readyState === 1) ws.send(JSON.stringify(o)); } catch (e) {} };
     ws.onopen = () => {
-      this.conn[k] = 'live'; this.emit('conn'); this.checkSim();
+      this.conn[k] = 'live'; this.lastMsg[k] = performance.now(); this.emit('conn'); this.checkSim();
       if (k === 'mempool') {
-        ws.send(JSON.stringify({ action: 'init' }));
-        ws.send(JSON.stringify({ action: 'want', data: ['blocks', 'stats', 'mempool-blocks', 'live-2h-chart'] }));
+        send({ action: 'init' });
+        send({ action: 'want', data: ['blocks', 'stats', 'mempool-blocks', 'live-2h-chart'] });
+        // keepalive: re-assert the subscription so idle middleboxes don't cut us
+        this.timers['ka_' + k] = setInterval(() => send({ action: 'want', data: ['blocks', 'stats', 'mempool-blocks', 'live-2h-chart'] }), 25000);
       } else if (k === 'chain') {
-        ws.send(JSON.stringify({ op: 'unconfirmed_sub' }));
+        send({ op: 'unconfirmed_sub' });
+        this.timers['ka_' + k] = setInterval(() => send({ op: 'ping' }), 20000);
       } else if (k === 'price') {
-        ws.send(JSON.stringify({ type: 'subscribe', product_ids: ['BTC-USD'], channels: ['ticker', 'matches'] }));
+        // heartbeat channel = 1 msg/s from the server, which doubles as our liveness proof
+        send({ type: 'subscribe', product_ids: ['BTC-USD'], channels: ['ticker', 'matches', 'heartbeat'] });
       }
     };
-    ws.onmessage = (m) => { this.msgCount[k]++; try { this.route(k, JSON.parse(m.data)); } catch (e) {} };
+    ws.onmessage = (m) => {
+      this.msgCount[k]++; this.lastMsg[k] = performance.now();
+      try { this.route(k, JSON.parse(m.data)); } catch (e) {}
+    };
     ws.onerror = () => { this.conn[k] = 'error'; this.emit('conn'); };
-    ws.onclose = () => { this.conn[k] = this.enabled[k] ? 'error' : 'off'; this.emit('conn'); this.retry(k); };
+    ws.onclose = () => { clearInterval(this.timers['ka_' + k]); this.conn[k] = this.enabled[k] ? 'error' : 'off'; this.emit('conn'); this.retry(k); };
   },
 
   retry(k) {
@@ -431,5 +467,5 @@ const Feeds = {
     this.conn.sim = 'off'; this.emit('conn');
   },
 
-  anyLive() { return ['mempool', 'chain', 'price', 'rest'].some(k => this.conn[k] === 'live'); },
+  anyLive() { return ['mempool', 'chain', 'price'].some(k => this.fresh(k, 15000)) || this.conn.rest === 'live'; },
 };
