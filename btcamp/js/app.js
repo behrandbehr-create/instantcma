@@ -87,7 +87,8 @@ function makeHSlider(el, get, set, fmt) {
   const thumb = el.querySelector('.thumb'), fill = el.querySelector('.fill');
   const render = () => {
     const f = clamp(get(), 0, 1);
-    thumb.style.left = `calc(${(f * 100).toFixed(1)}% - ${(f * 20).toFixed(0)}px)`;
+    const tw = thumb.offsetWidth || 20;
+    thumb.style.left = `calc(${(f * 100).toFixed(1)}% - ${(f * tw).toFixed(0)}px)`;
     if (fill) fill.style.width = (f * 100).toFixed(1) + '%';
     if (fmt) el.title = fmt(f);
   };
@@ -167,10 +168,29 @@ const Deck = {
   ],
   init() {
     if (CFG.viz) Object.assign(Viz.P, CFG.viz);
-    const host = $('#viz-knobs');
+    // labeled sliders (dials tested badly — sliders read and drag better)
+    const host = $('#viz-sliders');
     this.defs.forEach(d => {
-      const wrap = document.createElement('div'); wrap.className = 'knob-wrap'; host.appendChild(wrap);
-      this.knobs.push(makeKnob(wrap, { ...d, get: () => Viz.P[d.key], set: (v) => { Viz.P[d.key] = v; } }));
+      const row = document.createElement('div');
+      row.className = 'vs-row';
+      row.innerHTML = `<label>${d.label}</label><div class="hslider"><div class="fill"></div><div class="thumb"></div></div><span class="vs-val"></span>`;
+      host.appendChild(row);
+      const val = row.querySelector('.vs-val'), sl = row.querySelector('.hslider');
+      const paintVal = () => { val.textContent = d.fmt ? d.fmt(Viz.P[d.key]) : Viz.P[d.key].toFixed(2); };
+      const s = makeHSlider(sl,
+        () => (Viz.P[d.key] - d.min) / (d.max - d.min),
+        (f) => {
+          let v = d.min + f * (d.max - d.min);
+          if (d.step) v = Math.round(v / d.step) * d.step;
+          Viz.P[d.key] = v; paintVal(); this.saveParams();
+        });
+      sl.addEventListener('dblclick', () => {
+        Viz.P[d.key] = d.def !== undefined ? d.def : (d.min + d.max) / 2;
+        s.render(); paintVal(); this.saveParams();
+      });
+      sl.title = d.label + ' — drag, scroll, or double-click to reset';
+      paintVal();
+      this.knobs.push({ render() { s.render(); paintVal(); } });
     });
     Viz.attach($('#viz-canvas'));
     Viz.set(CFG.mode || 0); this.updateModeLCD(false);
@@ -698,7 +718,7 @@ function initKeys() {
 }
 
 /* =============== diagnostics & self-defense =============== */
-const BUILD = 'v10';
+const BUILD = 'v11';
 const Diag = {
   visible: false,
   init() {

@@ -10,6 +10,9 @@
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const lerp = (a, b, t) => a + (b - a) * t;
+// every number ingested from the network goes through this — one NaN in the
+// signal path poisons the whole spectrum (Math.max(x, NaN) === NaN)
+const num = (v, fb = 0) => { v = +v; return isFinite(v) ? v : fb; };
 
 const Feeds = {
   /* ---- live network state ---- */
@@ -173,6 +176,15 @@ const Feeds = {
   /* ================= per-frame synthesis ================= */
   tick(dt) {
     const S = this.S, now = performance.now();
+    // chain feed down but mempool.space delivering? Derive the tx pulse from its
+    // REAL throughput stat (vbytes/s ÷ ~560 vB average tx) so the beat never dies.
+    if (!this.paused && !this.fresh('chain', 10000) && this.fresh('mempool', 30000) && S.vps > 0) {
+      this._dtx = (this._dtx || 0) + dt * clamp(S.vps / 560, 0.4, 25);
+      while (this._dtx >= 1) {
+        this._dtx -= 1;
+        this.onTx(Math.pow(10, Math.random() * 3 - 2.1)); // sampled value, real rate
+      }
+    }
     // tx rate over 5s window
     while (this._txWindow.length && now - this._txWindow[0] > 5000) this._txWindow.shift();
     S.txRate = this._txWindow.length / 5;
@@ -214,10 +226,12 @@ const Feeds = {
       }
       // lightning shimmer in the top bins
       if (i >= 56 && gl > 0 && S.ln.nodes) v = Math.max(v, gl * (0.1 + 0.12 * Math.abs(Math.sin(t * 7 + i * 2.3))));
-      this.spec[i] = v;
+      this.spec[i] = isFinite(v) ? v : 0;   // NaN armor: one bad sample must not poison the array
+      v = this.spec[i];
       // falling peak caps
       if (v >= this.peaks[i]) { this.peaks[i] = v; this.peakV[i] = 0; }
       else { this.peakV[i] += dt * 1.4; this.peaks[i] = Math.max(v, this.peaks[i] - this.peakV[i] * dt); }
+      if (!isFinite(this.peaks[i])) this.peaks[i] = v;
     }
 
     // waveform: tx impulses + price momentum + organic wobble
@@ -229,7 +243,7 @@ const Feeds = {
         this._impulse * Math.sin(this._wavePhase * 7 + s) * 0.9 +
         clamp(S.priceMom * 0.6, -0.5, 0.5) * this.eff('prc') +
         Math.sin(this._wavePhase * 2.1) * 0.12 * this.level, -1, 1);
-      this.wave[this.wavePos] = smp;
+      this.wave[this.wavePos] = isFinite(smp) ? smp : 0;
       this.wavePos = (this.wavePos + 1) % this.wave.length;
     }
 
@@ -239,7 +253,11 @@ const Feeds = {
     for (let i = 0; i < 10; i++) bass += this.spec[i];
     for (let i = 48; i < 64; i++) treb += this.spec[i];
     for (let i = 0; i < 64; i++) lv += this.spec[i];
-    this.bass = bass / 10; this.treble = treb / 16; this.level = lv / 64;
+    this.bass = num(bass / 10); this.treble = num(treb / 16); this.level = num(lv / 64);
+    if (!isFinite(this.beat)) this.beat = 0;
+    if (!isFinite(S.mempoolVsize)) S.mempoolVsize = 0;
+    if (!isFinite(S.priceMom)) S.priceMom = 0;
+    if (!isFinite(S.wind)) S.wind = 0;
 
     // message-rate meters (per second, smoothed)
     for (const kk of ['mempool', 'chain', 'price']) {
@@ -349,38 +367,43 @@ const Feeds = {
   route(k, d) {
     const S = this.S;
     if (k === 'mempool') {
-      if (d.mempoolInfo) { S.mempoolCount = d.mempoolInfo.size; S.mempoolVsize = d.mempoolInfo.vsize; }
-      if (d.fees) S.fees = { fast: d.fees.fastestFee, half: d.fees.halfHourFee, hour: d.fees.hourFee, eco: d.fees.economyFee, min: d.fees.minimumFee };
+      if (d.mempoolInfo) {
+        S.mempoolCount = num(d.mempoolInfo.size, S.mempoolCount);
+        // live WS mirrors bitcoind getmempoolinfo: the vsize sum is `bytes` (no `vsize` field)
+        S.mempoolVsize = num(d.mempoolInfo.vsize != null ? d.mempoolInfo.vsize : d.mempoolInfo.bytes, S.mempoolVsize);
+      }
+      if (d.fees) S.fees = { fast: num(d.fees.fastestFee, 1), half: num(d.fees.halfHourFee, 1), hour: num(d.fees.hourFee, 1), eco: num(d.fees.economyFee, 1), min: num(d.fees.minimumFee, 1) };
       if (d['mempool-blocks']) S.mempoolBlocks = d['mempool-blocks'];
-      if (d.da) { S.daProgress = d.da.progressPercent; S.daChange = d.da.difficultyChange; S.daRemaining = d.da.remainingBlocks; S.daEstimate = d.da.estimatedRetargetDate; }
-      if (d['live-2h-chart'] && d['live-2h-chart'].vbytes_per_second != null) S.vps = d['live-2h-chart'].vbytes_per_second;
+      if (d.da) { S.daProgress = num(d.da.progressPercent); S.daChange = num(d.da.difficultyChange); S.daRemaining = num(d.da.remainingBlocks); S.daEstimate = num(d.da.estimatedRetargetDate); }
+      if (d['live-2h-chart'] && d['live-2h-chart'].vbytes_per_second != null) S.vps = num(d['live-2h-chart'].vbytes_per_second, S.vps);
       if (d.blocks) d.blocks.slice(-8).forEach(b => this.addBlockQuiet(b));
       if (d.block) this.onBlock(this.normBlock(d.block));
     } else if (k === 'chain') {
       if (d.op === 'utx' && d.x) {
-        const sats = (d.x.out || []).reduce((a, o) => a + (o.value || 0), 0);
+        const sats = (d.x.out || []).reduce((a, o) => a + num(o.value), 0);
         this.onTx(sats / 1e8);
       }
     } else if (k === 'price') {
       if (d.type === 'match' || d.type === 'last_match') {
         // Coinbase 'side' is the maker side: maker sold ⇒ taker BOUGHT
-        this._gotMatch = true;
-        this.onTrade(parseFloat(d.price), parseFloat(d.size || 0), d.side === 'sell');
+        const p = num(d.price);
+        if (p) { this._gotMatch = true; this.onTrade(p, num(d.size), d.side === 'sell'); }
       } else if (d.type === 'ticker' && d.price) {
-        if (d.volume_24h) S.vol24 = parseFloat(d.volume_24h);
-        if (!this._gotMatch) this.onTrade(parseFloat(d.price), 0);
+        if (d.volume_24h) S.vol24 = num(d.volume_24h, S.vol24);
+        const p = num(d.price);
+        if (p && !this._gotMatch) this.onTrade(p, 0);
       }
     }
   },
 
   normBlock(b) {
     return {
-      height: b.height, hash: b.id || b.hash || '',
+      height: num(b.height), hash: b.id || b.hash || '',
       miner: (b.extras && b.extras.pool && b.extras.pool.name) || 'Unknown Pool',
-      size: b.size || 0, txs: b.tx_count || 0,
-      fees: (b.extras && b.extras.totalFees != null) ? b.extras.totalFees / 1e8 : 0,
-      reward: (b.extras && b.extras.reward != null) ? b.extras.reward / 1e8 : 3.125,
-      time: b.timestamp || Date.now() / 1000, dur: 0,
+      size: num(b.size), txs: num(b.tx_count),
+      fees: (b.extras && b.extras.totalFees != null) ? num(b.extras.totalFees) / 1e8 : 0,
+      reward: (b.extras && b.extras.reward != null) ? num(b.extras.reward) / 1e8 : 3.125,
+      time: num(b.timestamp, Date.now() / 1000), dur: 0,
     };
   },
 
@@ -400,7 +423,8 @@ const Feeds = {
     const get = async (url) => { const r = await fetch(url); if (!r.ok) throw 0; return r.json(); };
     let ok = false;
     const jobs = [
-      get('https://mempool.space/api/blocks').then(bs => bs.forEach(b => this.addBlockQuiet(b))),
+      // /api/v1/blocks (not /api/blocks) carries extras: pool name, total fees, reward
+      get('https://mempool.space/api/v1/blocks').then(bs => bs.forEach(b => this.addBlockQuiet(b))),
       get('https://mempool.space/api/v1/fees/recommended').then(f => { if (this.conn.mempool !== 'live') this.S.fees = { fast: f.fastestFee, half: f.halfHourFee, hour: f.hourFee, eco: f.economyFee, min: f.minimumFee }; }),
       get('https://mempool.space/api/v1/difficulty-adjustment').then(d => { this.S.daProgress = d.progressPercent; this.S.daChange = d.difficultyChange; this.S.daRemaining = d.remainingBlocks; this.S.daEstimate = d.estimatedRetargetDate; }),
       get('https://mempool.space/api/v1/mining/hashrate/3d').then(h => { this.S.hashrate = h.currentHashrate; this.S.difficulty = h.currentDifficulty; }),

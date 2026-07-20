@@ -202,6 +202,12 @@ body.crt #crt-ov { display:block; }
   75% { opacity:1; transform:translate(-50%,-50%) scale(1); }
   100% { opacity:0; transform:translate(-50%,-52%) scale(1); } }
 #viz-deck { display:flex; align-items:center; gap:8px; padding:6px 4px 2px; flex-wrap:nowrap; }
+#viz-sliders { flex:1; display:grid; grid-template-columns:repeat(2, 1fr); gap:6px 14px; align-self:center; min-width:0; }
+.vs-row { display:flex; align-items:center; gap:6px; min-width:0; }
+.vs-row label { font-size:8px; letter-spacing:1px; width:46px; flex:0 0 46px; opacity:.85; white-space:nowrap; overflow:hidden; }
+.vs-row .hslider { flex:1; height:12px; min-width:40px; }
+.vs-row .hslider .thumb { width:14px; height:16px; }
+.vs-row .vs-val { font-size:8px; color:var(--la); text-shadow:0 0 4px var(--la); width:34px; flex:0 0 34px; text-align:right; }
 #viz-lcds { display:flex; flex-direction:column; gap:3px; min-width:190px; }
 #viz-mode-lcd, #viz-src-lcd { display:flex; align-items:center; gap:4px; padding:3px 6px; }
 #viz-mode-lcd .name, #viz-src-lcd .name { flex:1; text-align:center; font-size:11px; letter-spacing:1px; white-space:nowrap; }

@@ -52,8 +52,8 @@ shockwave rings with a live whale tape (≥ 2 BTC), a rolling price oscilloscope
 session high/low, a 10-second buy/sell pressure bar, and an order-size spectrum
 (small orders left → whales right) with classic falling peak caps.
 
-Eight dials shape every mode: **SPEED · TRAILS · GLOW · HUE · DENSITY · SENS · SYMMETRY ·
-ZOOM** (drag vertically, double-click to reset). `PAL`/`C` cycles five color engines that
+Eight labeled sliders shape every mode: **SPEED · TRAILS · GLOW · HUE · DENSITY · SENS · SYMMETRY ·
+ZOOM** (drag or scroll, double-click to reset). `PAL`/`C` cycles five color engines that
 retint every mode — **SKIN / RAINBOW / FIRE / ICE / MONO**. `AUTO` cycles modes, `RND`
 randomizes the dials, `CRT` adds a scanline/vignette overlay, `FULL`/`F`/double-click for
 fullscreen.
