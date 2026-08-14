@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SwingLab — ATP Biomechanics Coach</title>
+<style>
+  :root {
+    --bg: #0a0f14;
+    --panel: #101922;
+    --panel2: #16222e;
+    --ink: #e8f1f5;
+    --dim: #8fa3ad;
+    --accent: #40e0b2;
+    --warn: #ffb86b;
+    --bad: #ff6b81;
+    --line: rgba(255,255,255,0.08);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--ink);
+    font: 16px/1.55 system-ui, -apple-system, 'Segoe UI', sans-serif;
+    min-height: 100vh;
+  }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 28px 20px 80px; }
+
+  header { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin-bottom: 6px; }
+  header h1 { font-size: 30px; letter-spacing: -0.5px; }
+  header h1 span { color: var(--accent); }
+  header .sub { color: var(--dim); font-size: 14px; }
+  .powered { color: var(--dim); font-size: 12px; margin-bottom: 26px; }
+  .powered b { color: var(--accent); font-weight: 600; }
+
+  .status { padding: 10px 14px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); color: var(--dim); font-size: 14px; margin-bottom: 18px; }
+  .status.ok { color: var(--accent); border-color: rgba(64,224,178,0.3); }
+  .status.err { color: var(--bad); border-color: rgba(255,107,129,0.35); }
+
+  .controls { display: flex; gap: 12px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
+  .controls label { color: var(--dim); font-size: 14px; }
+  select {
+    background: var(--panel2); color: var(--ink); border: 1px solid var(--line);
+    border-radius: 8px; padding: 8px 12px; font-size: 14px;
+  }
+
+  #dropzone {
+    border: 2px dashed rgba(64,224,178,0.35); border-radius: 18px;
+    padding: 64px 28px; text-align: center; cursor: pointer;
+    background: radial-gradient(ellipse at 50% 0%, rgba(64,224,178,0.06), transparent 60%);
+    transition: border-color 0.2s, background 0.2s; opacity: 0.55;
+  }
+  #dropzone.ready { opacity: 1; }
+  #dropzone.drag { border-color: var(--accent); background: rgba(64,224,178,0.08); }
+  #dropzone h2 { font-size: 22px; margin-bottom: 8px; }
+  #dropzone p { color: var(--dim); font-size: 14px; max-width: 520px; margin: 0 auto 4px; }
+  #dropzone .hint { margin-top: 14px; font-size: 13px; color: var(--warn); }
+
+  .hidden { display: none !important; }
+
+  #stage { position: relative; border-radius: 16px; overflow: hidden; background: #000; margin-bottom: 18px; }
+  #stage video { width: 100%; display: block; }
+  #overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+
+  #progressWrap { margin: -6px 0 18px; }
+  #progressTrack { height: 8px; border-radius: 6px; background: var(--panel2); overflow: hidden; }
+  #progressBar { height: 100%; width: 0%; background: linear-gradient(90deg, var(--accent), #7be0ff); transition: width 0.15s; }
+  #progressPct { font-size: 12px; color: var(--dim); margin-top: 4px; }
+
+  section { margin-top: 34px; }
+  section > h3 { font-size: 20px; margin-bottom: 4px; }
+  section > .sectionSub { color: var(--dim); font-size: 14px; margin-bottom: 16px; }
+
+  .heroRow { display: grid; grid-template-columns: 220px 1fr; gap: 18px; align-items: stretch; }
+  @media (max-width: 720px) { .heroRow { grid-template-columns: 1fr; } }
+  .scoreCard {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 16px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 22px;
+  }
+  #overallScore { font-size: 64px; font-weight: 700; color: var(--accent); line-height: 1; }
+  .scoreCard .outOf { color: var(--dim); font-size: 13px; }
+  #overallLabel { text-align: center; font-size: 14px; margin-top: 10px; color: var(--warn); }
+  .scoreCard .swings { margin-top: 10px; font-size: 12px; color: var(--dim); }
+  .radarCard { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 10px; }
+  #radar { width: 100%; height: 300px; display: block; }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 20px;
+    position: relative;
+  }
+  .card.critical { border-color: rgba(255,184,107,0.4); }
+  .cardRank {
+    position: absolute; top: -12px; left: 16px; width: 28px; height: 28px; border-radius: 50%;
+    background: var(--warn); color: #1a1206; font-weight: 700; display: flex; align-items: center; justify-content: center;
+  }
+  .card h4 { margin: 6px 0 10px; font-size: 16px; }
+  .card p { font-size: 14px; color: var(--ink); opacity: 0.9; }
+  .card .ref { margin-top: 10px; font-size: 12px; color: var(--dim); }
+  .scoreRow { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .bar { flex: 1; height: 8px; border-radius: 6px; background: var(--panel2); overflow: hidden; }
+  .bar div { height: 100%; background: linear-gradient(90deg, var(--bad), var(--warn)); }
+  .scoreRow span { font-size: 13px; color: var(--dim); min-width: 24px; }
+
+  #focusFive { list-style: none; display: flex; flex-direction: column; gap: 12px; }
+  #focusFive li { display: flex; gap: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; }
+  .fRank {
+    flex: 0 0 30px; height: 30px; border-radius: 50%; background: var(--panel2); color: var(--accent);
+    font-weight: 700; display: flex; align-items: center; justify-content: center;
+  }
+  .fDetail { color: var(--dim); font-size: 14px; margin-top: 4px; }
+
+  table { width: 100%; border-collapse: collapse; background: var(--panel); border-radius: 14px; overflow: hidden; font-size: 14px; }
+  th, td { padding: 12px 14px; text-align: left; border-bottom: 1px solid var(--line); }
+  th { background: var(--panel2); color: var(--dim); font-weight: 600; font-size: 13px; }
+  .refCell { color: var(--dim); font-size: 13px; }
+  .pill { padding: 3px 10px; border-radius: 20px; font-weight: 600; font-size: 13px; }
+  .pill.good { background: rgba(64,224,178,0.15); color: var(--accent); }
+  .pill.mid { background: rgba(255,184,107,0.15); color: var(--warn); }
+  .pill.bad { background: rgba(255,107,129,0.15); color: var(--bad); }
+  .tableWrap { overflow-x: auto; }
+
+  .charts { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 720px) { .charts { grid-template-columns: 1fr; } }
+  .charts canvas { width: 100%; height: 180px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; }
+
+  #swingList { display: flex; flex-wrap: wrap; gap: 8px; }
+  .swingChip {
+    background: var(--panel2); color: var(--ink); border: 1px solid var(--line); border-radius: 20px;
+    padding: 8px 14px; font-size: 13px; cursor: pointer;
+  }
+  .swingChip:hover { border-color: var(--accent); color: var(--accent); }
+
+  .drillGroup { margin-bottom: 22px; }
+  .drillGroup h4 { color: var(--warn); margin-bottom: 10px; font-size: 15px; }
+  .drill { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; margin-bottom: 10px; }
+  .drill p { font-size: 14px; color: var(--ink); opacity: 0.9; margin-top: 6px; }
+  .drill .why { color: var(--dim); font-size: 13px; }
+
+  #aiCoach { background: linear-gradient(160deg, var(--panel), var(--panel2)); border: 1px solid rgba(64,224,178,0.25); border-radius: 16px; padding: 24px; }
+  .aiLetter p { margin-bottom: 12px; font-size: 15px; }
+  .aiThinking { color: var(--dim); font-style: italic; }
+  .aiTag { margin-top: 8px; font-size: 12px; color: var(--dim); }
+
+  .planCard { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 22px; }
+  .planCard a { color: var(--accent); }
+
+  .actions { display: flex; gap: 12px; margin-top: 30px; flex-wrap: wrap; }
+  .btn {
+    background: var(--accent); color: #06231a; border: none; border-radius: 10px;
+    padding: 12px 22px; font-size: 15px; font-weight: 600; cursor: pointer;
+  }
+  .btn.ghost { background: transparent; color: var(--accent); border: 1px solid rgba(64,224,178,0.4); }
+
+  @media print {
+    body { background: #fff; color: #111; }
+    #stage, .actions, #dropzone, .controls, .status { display: none !important; }
+    .card, #focusFive li, .drill, table, #aiCoach, .planCard, .scoreCard, .radarCard { border-color: #ccc; background: #fff; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Swing<span>Lab</span></h1>
+    <div class="sub">ATP-grade biomechanics breakdown from your SwingVision footage</div>
+  </header>
+  <div class="powered">33-point body tracking · kinetic-chain timing · X-factor analysis · <b>runs entirely in your browser — your video never leaves your device</b></div>
+
+  <div id="status" class="status">Booting…</div>
+
+  <div class="controls">
+    <label>I hit with my</label>
+    <select id="handedness">
+      <option value="right" selected>Right hand</option>
+      <option value="left">Left hand</option>
+    </select>
+  </div>
+
+  <div id="dropzone">
+    <h2>Drop your swing video here</h2>
+    <p>In SwingVision: open the match → Share → <strong>Save Video</strong> (or export a highlight clip), then drag the .mp4 into this box.</p>
+    <p>Best results: side or back view, full body in frame, one player.</p>
+    <div class="hint">Everything is analyzed locally — nothing is uploaded.</div>
+    <input type="file" id="fileInput" accept="video/*" hidden>
+  </div>
+
+  <div id="stage" class="hidden">
+    <video id="video" playsinline muted></video>
+    <canvas id="overlay"></canvas>
+  </div>
+
+  <div id="progressWrap" class="hidden">
+    <div id="progressTrack"><div id="progressBar"></div></div>
+    <div id="progressPct">0%</div>
+  </div>
+
+  <div id="report" class="hidden">
+    <section>
+      <h3>Session Score</h3>
+      <div class="sectionSub">How your mechanics compare to the ATP pattern model, across every swing detected.</div>
+      <div class="heroRow">
+        <div class="scoreCard">
+          <div id="overallScore">–</div>
+          <div class="outOf">/ 100 vs ATP model</div>
+          <div id="overallLabel"></div>
+          <div class="swings"><span id="swingCount">0</span> swings measured</div>
+        </div>
+        <div class="radarCard"><canvas id="radar"></canvas></div>
+      </div>
+    </section>
+
+    <section>
+      <h3>The 3 Most Important Things</h3>
+      <div class="sectionSub">Fix these first — everything else improves downstream of them.</div>
+      <div id="topThree" class="cards"></div>
+    </section>
+
+    <section>
+      <h3>Your 5 Focus Areas</h3>
+      <div class="sectionSub">Ranked by measured deficit against the pro reference bands.</div>
+      <ul id="focusFive"></ul>
+    </section>
+
+    <section>
+      <h3>Coach's Letter</h3>
+      <div class="sectionSub">A personalized read of your numbers.</div>
+      <div id="aiCoach"></div>
+    </section>
+
+    <section>
+      <h3>Full Measurement Table</h3>
+      <div class="tableWrap"><table id="metricsTable"></table></div>
+    </section>
+
+    <section>
+      <h3>Kinematics Timeline</h3>
+      <div class="sectionSub">Orange bands = detected swings, orange line = contact. Click a swing chip to replay it in slow motion with the skeleton overlay.</div>
+      <div class="charts">
+        <canvas id="chartXfactor"></canvas>
+        <canvas id="chartSpeed"></canvas>
+      </div>
+      <div style="height:12px"></div>
+      <div id="swingList"></div>
+    </section>
+
+    <section>
+      <h3>Prescribed Drills</h3>
+      <div class="sectionSub">Targeted at your top 3, in the order a coach would run them.</div>
+      <div id="drills"></div>
+    </section>
+
+    <section>
+      <h3>Your 30-Day Championship Plan</h3>
+      <div class="planCard">
+        <p style="margin-bottom:14px">These findings slot directly into your
+        <a href="https://claude.ai/code/artifact/fe408cab-7b67-46a5-84c5-ee33477e886f" target="_blank" rel="noopener">Championship Countdown — 30-Day Tennis Prep</a> plan:</p>
+        <div class="tableWrap"><table><tbody id="planRows"></tbody></table></div>
+      </div>
+    </section>
+
+    <div class="actions">
+      <button class="btn" id="printBtn">Print / Save Report as PDF</button>
+      <button class="btn ghost" id="newVideoBtn">Analyze Another Video</button>
+    </div>
+  </div>
+</div>
+<script type="module" src="./js/app.js"></script>
+</body>
+</html>
