@@ -3,6 +3,7 @@ import { PoseLandmarker, FilesetResolver, DrawingUtils } from '../vendor/vision_
 import { buildSeries, detectSwings, measureSwing, aggregate, LM } from './metrics.js';
 import { buildReport, planIntegration, DIMENSIONS } from './coach.js';
 import { saveSession, listSessions, getSession, deleteSession } from './db.js';
+import { measureSegments, ghostPoseAt, GHOST_BONES, GHOST_CONTACT_PHASE, buildCallouts } from './ghost.js';
 
 const $ = id => document.getElementById(id);
 const MAX_STORED_VIDEO = 350 * 1024 * 1024;
@@ -96,6 +97,7 @@ async function loadVideoFromURL(url) {
 
 function loadVideo(file, nameOverride) {
   if (!state.landmarker) { setStatus('Engine still loading — one moment…'); return; }
+  resetReplay();
   state.videoBlob = file;
   state.sourceName = nameOverride || file.name || 'video';
   const url = URL.createObjectURL(file);
@@ -273,12 +275,16 @@ async function renderHistory() {
         <span>${new Date(s.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
         · ${s.swings} swing${s.swings === 1 ? '' : 's'}${s.hasVideo ? '' : ' · report only'}</span>
       </div>
+      <label class="histCmpWrap" title="Select two sessions to compare">
+        <input type="checkbox" class="histCmp" data-id="${s.id}"> compare
+      </label>
       <button class="histDel" data-id="${s.id}" title="Delete this session">✕</button>
     </div>`).join('');
 
   document.querySelectorAll('.histCard').forEach(card =>
     card.addEventListener('click', e => {
-      if (e.target.classList.contains('histDel')) return;
+      if (e.target.classList.contains('histDel') || e.target.classList.contains('histCmp') ||
+          e.target.classList.contains('histCmpWrap')) return;
       restoreSession(+card.dataset.id);
     }));
   document.querySelectorAll('.histDel').forEach(btn =>
@@ -287,14 +293,115 @@ async function renderHistory() {
       await deleteSession(+btn.dataset.id).catch(() => {});
       renderHistory();
     }));
+  document.querySelectorAll('.histCmp').forEach(cb =>
+    cb.addEventListener('change', onCompareToggle));
 
   drawTrend($('trendChart'), sessions);
+}
+
+// ---------- session compare ----------
+function onCompareToggle() {
+  const sel = [...document.querySelectorAll('.histCmp:checked')].map(cb => +cb.dataset.id);
+  if (sel.length > 2) { this.checked = false; return; }
+  if (sel.length === 2) renderCompare(sel[0], sel[1]);
+  else $('compareSec').classList.add('hidden');
+}
+
+async function renderCompare(idA, idB) {
+  let a = await getSession(idA).catch(() => null);
+  let b = await getSession(idB).catch(() => null);
+  if (!a || !b) return;
+  if (a.date > b.date) [a, b] = [b, a]; // A = earlier, B = later
+  const ra = buildReport(a.agg), rb = buildReport(b.agg);
+  const fmtD = ts => new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+
+  $('compareSec').classList.remove('hidden');
+  $('compareTitle').textContent = `${fmtD(a.date)} (${ra.overall}) vs ${fmtD(b.date)} (${rb.overall})`;
+  const delta = rb.overall - ra.overall;
+  $('compareDelta').textContent = (delta >= 0 ? '+' : '') + delta + ' overall';
+  $('compareDelta').className = 'cmpDelta ' + (delta > 0 ? 'up' : delta < 0 ? 'down' : '');
+
+  const byId = list => Object.fromEntries(list.map(d => [d.id, d]));
+  const A = byId(ra.scored), B = byId(rb.scored);
+  $('compareTable').innerHTML =
+    `<tr><th>Metric</th><th>${fmtD(a.date)}</th><th>${fmtD(b.date)}</th><th>Δ</th></tr>` +
+    rb.scored.map(d => {
+      const sa = A[d.id] ? Math.round(A[d.id].score) : null;
+      const sb = Math.round(d.score);
+      const dd = sa === null ? null : sb - sa;
+      const cls = dd === null ? '' : dd > 0 ? 'up' : dd < 0 ? 'down' : '';
+      return `<tr>
+        <td>${d.label}</td>
+        <td>${sa ?? '—'}</td>
+        <td>${sb}</td>
+        <td class="cmpDelta ${cls}">${dd === null ? '—' : (dd >= 0 ? '+' : '') + dd}</td>
+      </tr>`;
+    }).join('');
+
+  drawRadarCompare($('compareRadar'), ra.scored, B, fmtD(a.date), fmtD(b.date));
+  $('compareSec').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function drawRadarCompare(canvas, dimsA, dimsBById, labelA, labelB) {
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width = canvas.offsetWidth * 2;
+  const H = canvas.height = canvas.offsetHeight * 2;
+  ctx.clearRect(0, 0, W, H);
+  const cx = W / 2, cy = H / 2, R = Math.min(W, H) * 0.32;
+  const n = dimsA.length;
+  ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+  ctx.fillStyle = 'rgba(255,255,255,0.5)';
+  ctx.font = `${Math.round(W / 48)}px system-ui`;
+  for (let ring = 1; ring <= 4; ring++) {
+    ctx.beginPath();
+    for (let i = 0; i <= n; i++) {
+      const ang = (i / n) * Math.PI * 2 - Math.PI / 2;
+      const r = R * ring / 4;
+      const x = cx + Math.cos(ang) * r, y = cy + Math.sin(ang) * r;
+      i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+    }
+    ctx.stroke();
+  }
+  dimsA.forEach((d, i) => {
+    const ang = (i / n) * Math.PI * 2 - Math.PI / 2;
+    ctx.textAlign = Math.cos(ang) > 0.3 ? 'left' : Math.cos(ang) < -0.3 ? 'right' : 'center';
+    ctx.fillText(d.label.split(' & ')[0], cx + Math.cos(ang) * (R + 14), cy + Math.sin(ang) * (R + 14) + 5);
+  });
+  const poly = (scores, stroke, fill) => {
+    ctx.beginPath();
+    scores.forEach((s, i) => {
+      const ang = (i / n) * Math.PI * 2 - Math.PI / 2;
+      const r = R * (s / 100);
+      const x = cx + Math.cos(ang) * r, y = cy + Math.sin(ang) * r;
+      i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+    });
+    ctx.closePath();
+    ctx.fillStyle = fill; ctx.fill();
+    ctx.strokeStyle = stroke; ctx.lineWidth = 3; ctx.stroke();
+  };
+  poly(dimsA.map(d => d.score), 'rgba(150,170,190,0.9)', 'rgba(150,170,190,0.12)');
+  poly(dimsA.map(d => dimsBById[d.id] ? dimsBById[d.id].score : 0), 'rgba(64,224,178,0.95)', 'rgba(64,224,178,0.2)');
+  ctx.font = `${Math.round(W / 44)}px system-ui`;
+  ctx.textAlign = 'left';
+  ctx.fillStyle = 'rgba(150,170,190,0.95)';
+  ctx.fillText('— ' + labelA, 16, H - 40);
+  ctx.fillStyle = 'rgba(64,224,178,0.95)';
+  ctx.fillText('— ' + labelB, 16, H - 14);
+}
+
+function resetReplay() {
+  replay.active = false;
+  replay.segs = null;
+  cancelAnimationFrame(replay.raf);
+  const bar = $('replayBar');
+  if (bar) bar.classList.add('hidden');
 }
 
 async function restoreSession(id) {
   const s = await getSession(id).catch(() => null);
   if (!s) return;
   setStatus('Loading saved session…');
+  resetReplay();
   state.frames = s.frames;
   state.sourceName = s.name;
   state.videoBlob = s.videoBlob || null;
@@ -412,18 +519,11 @@ function renderReport() {
 
   // Per-swing chips
   $('swingList').innerHTML = state.measures.map((m, i) => `
-    <button class="swingChip" data-t="${m.tContact}">
+    <button class="swingChip" data-i="${i}">
       Swing ${i + 1} · ${m.tContact.toFixed(1)}s · ${m.peakSpeed.toFixed(1)} TL/s
     </button>`).join('');
   document.querySelectorAll('.swingChip').forEach(b =>
-    b.addEventListener('click', () => {
-      const v = $('video');
-      v.currentTime = Math.max(0, +b.dataset.t - 1.2);
-      v.playbackRate = 0.4;
-      v.play();
-      setTimeout(() => { v.pause(); v.playbackRate = 1; }, 5000);
-      replayOverlay();
-    }));
+    b.addEventListener('click', () => startReplay(+b.dataset.i)));
 
   // Charts
   drawTimeline($('chartXfactor'), state.series.t, state.series.xFactor, 'X-Factor (°)', state.swings, state.series);
@@ -434,21 +534,167 @@ function renderReport() {
     <tr><td>${row.phase}</td><td>${row.action}</td></tr>`).join('');
 }
 
-// Redraw skeleton during replay
-function replayOverlay() {
+// ---------- ghost replay ----------
+const replay = { active: false, idx: 0, ghost: true, segs: null, anchor: null, mirror: 1, callouts: [], raf: 0 };
+
+function nearestFrame(t) {
+  let best = null, bd = Infinity;
+  for (const f of state.frames) {
+    const d = Math.abs(f.t - t);
+    if (d < bd) { bd = d; best = f; }
+  }
+  return bd < 0.12 ? best : null;
+}
+
+function startReplay(idx) {
+  if (!state.video || !state.videoBlob) {
+    setStatus('This session was saved without its video, so replay isn\'t available — but all scores and findings are.', 'err');
+    return;
+  }
+  const m = state.measures[idx];
+  replay.active = true;
+  replay.idx = idx;
+  replay.segs = replay.segs || measureSegments(state.frames);
+  replay.callouts = buildCallouts(m);
+
+  // Anchor the ghost at the player's median hip position across the swing,
+  // scaled by their on-screen torso length; mirror to match swing direction.
+  const win = state.frames.filter(f => f.image && f.t >= m.tStart && f.t <= m.tEnd);
+  const hx = [], hy = [], tl = [];
+  for (const f of win) {
+    const im = f.image;
+    const hcx = (im[LM.L_HIP].x + im[LM.R_HIP].x) / 2, hcy = (im[LM.L_HIP].y + im[LM.R_HIP].y) / 2;
+    const scx = (im[LM.L_SHOULDER].x + im[LM.R_SHOULDER].x) / 2, scy = (im[LM.L_SHOULDER].y + im[LM.R_SHOULDER].y) / 2;
+    hx.push(hcx); hy.push(hcy); tl.push(Math.hypot(scx - hcx, scy - hcy));
+  }
+  const medOf = a => { const s = [...a].sort((x, y) => x - y); return s.length ? s[Math.floor(s.length / 2)] : 0.5; };
+  replay.anchor = { x: medOf(hx), y: medOf(hy), torso: medOf(tl) || 0.15 };
+  const fc = nearestFrame(m.tContact), fs = nearestFrame(m.tStart);
+  const R = $('handedness').value === 'right';
+  const WR = R ? LM.R_WRIST : LM.L_WRIST;
+  replay.mirror = (fc?.image && fs?.image && fc.image[WR].x < fs.image[WR].x) ? -1 : 1;
+
+  $('replayBar').classList.remove('hidden');
+  $('replayLabel').textContent = `Swing ${idx + 1}`;
+  $('ghostToggle').checked = replay.ghost;
   const v = $('video');
-  const step = () => {
-    if (v.paused || v.ended) return;
-    const t = v.currentTime;
-    let best = null, bd = Infinity;
-    for (const f of state.frames) {
-      const d = Math.abs(f.t - t);
-      if (d < bd) { bd = d; best = f; }
-    }
-    if (best && bd < 0.1) drawOverlay(best.image);
-    requestAnimationFrame(step);
+  v.pause();
+  v.playbackRate = +$('replaySpeed').value;
+  v.currentTime = m.tStart;
+  v.play();
+  $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  cancelAnimationFrame(replay.raf);
+  replayLoop();
+}
+
+function replayLoop() {
+  if (!replay.active) return;
+  const v = $('video');
+  const m = state.measures[replay.idx];
+  const t = v.currentTime;
+  if (!v.paused && t >= m.tEnd + 0.15) { v.currentTime = m.tStart; } // loop the swing
+  const f = nearestFrame(t);
+  drawOverlay(f ? f.image : null);
+  const phase = phaseAt(t, m);
+  $('replayScrub').value = String(Math.round(phase * 1000));
+  if (replay.ghost && phase >= 0 && phase <= 1) drawGhost(phase);
+  replay.raf = requestAnimationFrame(replayLoop);
+}
+
+// Map video time → ghost phase, pinning the ghost's contact to the player's.
+function phaseAt(t, m) {
+  if (t <= m.tStart) return 0;
+  if (t >= m.tEnd) return 1;
+  if (t <= m.tContact) return (t - m.tStart) / (m.tContact - m.tStart) * GHOST_CONTACT_PHASE;
+  return GHOST_CONTACT_PHASE + (t - m.tContact) / (m.tEnd - m.tContact) * (1 - GHOST_CONTACT_PHASE);
+}
+
+function ghostToCanvas(g, canvas) {
+  const a = replay.anchor, s = a.torso / replay.segs.torso;
+  return {
+    x: (a.x + replay.mirror * g.x * s) * canvas.width,
+    y: (a.y + g.y * s) * canvas.height,
   };
-  requestAnimationFrame(step);
+}
+
+function drawGhost(phase) {
+  const canvas = $('overlay');
+  const ctx = canvas.getContext('2d');
+  const pose = ghostPoseAt(phase, replay.segs);
+  const lw = Math.max(2.5, canvas.width / 350);
+
+  ctx.save();
+  ctx.shadowColor = 'rgba(255,200,90,0.9)';
+  ctx.shadowBlur = lw * 4;
+  ctx.strokeStyle = 'rgba(255,216,140,0.65)';
+  ctx.lineWidth = lw;
+  ctx.lineCap = 'round';
+  for (const [j1, j2] of GHOST_BONES) {
+    const p1 = ghostToCanvas(pose[j1], canvas), p2 = ghostToCanvas(pose[j2], canvas);
+    ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
+  }
+  const head = ghostToCanvas(pose.head, canvas);
+  ctx.beginPath();
+  ctx.arc(head.x, head.y, lw * 2.4, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+
+  // Deviation callouts (max 2 at a time)
+  const active = replay.callouts.filter(c => phase >= c.from && phase <= c.to).slice(0, 2);
+  active.forEach((c, i) => {
+    const p = ghostToCanvas(pose[c.joint], canvas);
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,90,110,0.95)';
+    ctx.lineWidth = lw * 0.8;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, lw * 3.6, 0, Math.PI * 2);
+    ctx.stroke();
+    const fs = Math.max(13, canvas.width / 60);
+    ctx.font = `600 ${fs}px system-ui`;
+    const label = c.text;
+    const tw = ctx.measureText(label).width;
+    let lx = Math.min(Math.max(p.x - tw / 2, 10), canvas.width - tw - 22);
+    const ly = 14 + i * (fs + 22);
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y - lw * 3.6);
+    ctx.lineTo(lx + tw / 2 + 6, ly + fs + 10);
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(20,8,10,0.82)';
+    ctx.beginPath();
+    ctx.roundRect(lx - 8, ly, tw + 16, fs + 12, 8);
+    ctx.fill();
+    ctx.fillStyle = '#ff8296';
+    ctx.fillText(label, lx, ly + fs + 2);
+    ctx.restore();
+  });
+}
+
+function wireReplayBar() {
+  const v = $('video');
+  $('replayPlay').addEventListener('click', () => {
+    if (v.paused) { v.playbackRate = +$('replaySpeed').value; v.play(); }
+    else v.pause();
+  });
+  $('replaySpeed').addEventListener('change', () => { v.playbackRate = +$('replaySpeed').value; });
+  $('ghostToggle').addEventListener('change', e => { replay.ghost = e.target.checked; });
+  $('replayScrub').addEventListener('input', e => {
+    const m = state.measures[replay.idx];
+    if (!m) return;
+    v.pause();
+    const ph = +e.target.value / 1000;
+    v.currentTime = ph <= GHOST_CONTACT_PHASE
+      ? m.tStart + (ph / GHOST_CONTACT_PHASE) * (m.tContact - m.tStart)
+      : m.tContact + ((ph - GHOST_CONTACT_PHASE) / (1 - GHOST_CONTACT_PHASE)) * (m.tEnd - m.tContact);
+  });
+  $('replayClose').addEventListener('click', () => {
+    replay.active = false;
+    cancelAnimationFrame(replay.raf);
+    v.pause();
+    v.playbackRate = 1;
+    $('replayBar').classList.add('hidden');
+    const canvas = $('overlay');
+    canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+  });
 }
 
 // ---------- charts (canvas, no deps) ----------
@@ -574,6 +820,7 @@ function wireExport() {
 // ---------- go ----------
 wireDropzone();
 wireExport();
+wireReplayBar();
 renderHistory();
 initModel().catch(e => setStatus('Engine failed to load: ' + e.message + ' — try a Chromium-based browser.', 'err'));
 void DIMENSIONS;

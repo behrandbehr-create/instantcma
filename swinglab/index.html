@@ -179,10 +179,33 @@
     cursor: pointer; padding: 8px;
   }
   .histDel:hover { color: var(--bad); }
+  .histCmpWrap {
+    display: flex; align-items: center; gap: 6px; color: var(--dim); font-size: 13px;
+    cursor: pointer; white-space: nowrap;
+  }
+  .histCmpWrap input { accent-color: var(--accent); cursor: pointer; }
+
+  #compareSec { margin-bottom: 10px; }
+  #compareSec .heroRow { grid-template-columns: 1fr 340px; }
+  @media (max-width: 820px) { #compareSec .heroRow { grid-template-columns: 1fr; } }
+  .cmpDelta { font-weight: 700; }
+  .cmpDelta.up { color: var(--accent); }
+  .cmpDelta.down { color: var(--bad); }
+
+  #replayBar {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    background: var(--panel); border: 1px solid rgba(255,216,140,0.35); border-radius: 14px;
+    padding: 12px 16px; margin: -8px 0 18px;
+  }
+  #replayBar.hidden { display: none; }
+  .replayLabel { font-weight: 600; color: var(--warn); }
+  #replayScrub { flex: 1; min-width: 120px; accent-color: var(--accent); }
+  .ghostLabel { display: flex; align-items: center; gap: 6px; color: var(--ink); font-size: 14px; white-space: nowrap; cursor: pointer; }
+  .ghostLabel input { accent-color: #ffd88c; cursor: pointer; }
 
   @media print {
     body { background: #fff; color: #111; }
-    #stage, .actions, #dropzone, .controls, .status, .urlRow, #historySec { display: none !important; }
+    #stage, .actions, #dropzone, .controls, .status, .urlRow, #historySec, #replayBar, #compareSec { display: none !important; }
     .card, #focusFive li, .drill, table, #aiCoach, .planCard, .scoreCard, .radarCard { border-color: #ccc; background: #fff; }
   }
 </style>
@@ -208,9 +231,20 @@
   <div id="historySec" class="hidden">
     <section style="margin-top:0">
       <h3>Past Sessions</h3>
-      <div class="sectionSub">Every analysis is saved on this device — tap one to reopen it, no re-upload needed.</div>
+      <div class="sectionSub">Every analysis is saved on this device — tap one to reopen it, no re-upload needed. Tick “compare” on two sessions to see exactly what improved.</div>
       <canvas id="trendChart" class="hidden"></canvas>
       <div id="historyList"></div>
+    </section>
+  </div>
+
+  <div id="compareSec" class="hidden">
+    <section style="margin-top:10px">
+      <h3>Session Comparison</h3>
+      <div class="sectionSub"><span id="compareTitle"></span> · <span id="compareDelta" class="cmpDelta"></span></div>
+      <div class="heroRow">
+        <div class="tableWrap" style="align-self:start"><table id="compareTable"></table></div>
+        <div class="radarCard"><canvas id="compareRadar" style="width:100%;height:300px;display:block"></canvas></div>
+      </div>
     </section>
   </div>
 
@@ -230,6 +264,19 @@
   <div id="stage" class="hidden">
     <video id="video" playsinline muted></video>
     <canvas id="overlay"></canvas>
+  </div>
+
+  <div id="replayBar" class="hidden">
+    <span id="replayLabel" class="replayLabel">Swing 1</span>
+    <button class="btn small" id="replayPlay">⏯</button>
+    <select id="replaySpeed">
+      <option value="0.25" selected>0.25×</option>
+      <option value="0.5">0.5×</option>
+      <option value="1">1×</option>
+    </select>
+    <input type="range" id="replayScrub" min="0" max="1000" value="0">
+    <label class="ghostLabel"><input type="checkbox" id="ghostToggle" checked> 👻 Ghost coach</label>
+    <button class="btn ghost small" id="replayClose">Done</button>
   </div>
 
   <div id="progressWrap" class="hidden">
@@ -277,7 +324,7 @@
 
     <section>
       <h3>Kinematics Timeline</h3>
-      <div class="sectionSub">Orange bands = detected swings, orange line = contact. Click a swing chip to replay it in slow motion with the skeleton overlay.</div>
+      <div class="sectionSub">Orange bands = detected swings, orange line = contact. Click a swing chip to open the slow-mo replay with your skeleton, the golden <strong>ghost coach</strong> showing the pro pattern at your body size, and red callouts marking exactly what to fix in that moment.</div>
       <div class="charts">
         <canvas id="chartXfactor"></canvas>
         <canvas id="chartSpeed"></canvas>
