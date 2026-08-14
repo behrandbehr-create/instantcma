@@ -2,8 +2,10 @@
 import { PoseLandmarker, FilesetResolver, DrawingUtils } from '../vendor/vision_bundle.mjs';
 import { buildSeries, detectSwings, measureSwing, aggregate, LM } from './metrics.js';
 import { buildReport, planIntegration, DIMENSIONS } from './coach.js';
+import { saveSession, listSessions, getSession, deleteSession } from './db.js';
 
 const $ = id => document.getElementById(id);
+const MAX_STORED_VIDEO = 350 * 1024 * 1024;
 const state = {
   landmarker: null,
   frames: [],
@@ -12,6 +14,8 @@ const state = {
   measures: [],
   report: null,
   video: null,
+  videoBlob: null,
+  sourceName: null,
   overlayFrames: [],
   processing: false,
 };
@@ -57,10 +61,43 @@ function wireDropzone() {
     if (f) loadVideo(f);
     else setStatus('That file isn\'t a video. Export the .mp4 from SwingVision (Share → Save Video) and drop it here.', 'err');
   });
+
+  const urlBtn = $('urlBtn'), urlInput = $('urlInput');
+  const go = () => { const u = urlInput.value.trim(); if (u) loadVideoFromURL(u); };
+  urlBtn.addEventListener('click', go);
+  urlInput.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
 }
 
-function loadVideo(file) {
+// Try to pull a video straight from a pasted link. Works for direct video
+// links whose host allows cross-site access; SwingVision match PAGES block
+// browser access, so those get a clear explanation instead of a cryptic error.
+async function loadVideoFromURL(url) {
   if (!state.landmarker) { setStatus('Engine still loading — one moment…'); return; }
+  if (/swing\.vision\/(matches|share)/i.test(url) && !/\.(mp4|mov|m4v|webm)(\?|$)/i.test(url)) {
+    setStatus('That\'s a SwingVision match page — their site doesn\'t let other websites read it directly. In the SwingVision app: Share → Save Video, then drop the file here (it stays saved in your history afterward).', 'err');
+    return;
+  }
+  setStatus('Fetching video from link…');
+  try {
+    const res = await fetch(url, { mode: 'cors' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const blob = await res.blob();
+    if (!blob.type.startsWith('video/') && !/\.(mp4|mov|m4v|webm)(\?|$)/i.test(url)) {
+      throw new Error('not a video (' + (blob.type || 'unknown type') + ')');
+    }
+    let name;
+    try { name = decodeURIComponent(new URL(url).pathname.split('/').pop()) || new URL(url).hostname; }
+    catch { name = 'linked video'; }
+    loadVideo(blob, name);
+  } catch (e) {
+    setStatus('Couldn\'t load that link (' + e.message + '). Most video hosts block cross-site access — use Share → Save Video in SwingVision and drop the file here instead. Once analyzed, it\'s kept in your history so you never load it twice.', 'err');
+  }
+}
+
+function loadVideo(file, nameOverride) {
+  if (!state.landmarker) { setStatus('Engine still loading — one moment…'); return; }
+  state.videoBlob = file;
+  state.sourceName = nameOverride || file.name || 'video';
   const url = URL.createObjectURL(file);
   const video = $('video');
   state.video = video;
@@ -173,7 +210,8 @@ function drawOverlay(imageLandmarks) {
 }
 
 // ---------- analysis ----------
-function analyze() {
+function analyze(opts = {}) {
+  const { save = true } = opts;
   const tracked = state.frames.filter(f => f.world).length;
   if (tracked < 30) {
     setStatus(`Only ${tracked} frames had a trackable player. SwingVision wide-angle exports work best — make sure the full body is visible.`, 'err');
@@ -196,6 +234,122 @@ function analyze() {
   renderReport();
   fetchAICoach(agg, state.report);
   setStatus(`Analysis complete — ${state.swings.length} swing${state.swings.length > 1 ? 's' : ''} detected and measured.`, 'ok');
+  if (save) persistSession(agg);
+}
+
+// ---------- history ----------
+async function persistSession(agg) {
+  try {
+    const record = {
+      date: Date.now(),
+      name: state.sourceName || 'session',
+      overall: state.report.overall,
+      swings: state.measures.length,
+      agg,
+      frames: state.frames,
+    };
+    if (state.videoBlob && state.videoBlob.size <= MAX_STORED_VIDEO) {
+      record.videoBlob = state.videoBlob;
+    }
+    await saveSession(record);
+    renderHistory();
+  } catch (e) {
+    // Storage full or blocked — history is a convenience, never fatal
+    console.warn('history save failed:', e);
+  }
+}
+
+async function renderHistory() {
+  let sessions = [];
+  try { sessions = await listSessions(); } catch { return; }
+  const sec = $('historySec');
+  if (!sessions.length) { sec.classList.add('hidden'); return; }
+  sec.classList.remove('hidden');
+  $('historyList').innerHTML = sessions.map(s => `
+    <div class="histCard" data-id="${s.id}">
+      <div class="histScore">${s.overall ?? '–'}</div>
+      <div class="histMeta">
+        <strong>${escapeHtml(s.name)}</strong>
+        <span>${new Date(s.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+        · ${s.swings} swing${s.swings === 1 ? '' : 's'}${s.hasVideo ? '' : ' · report only'}</span>
+      </div>
+      <button class="histDel" data-id="${s.id}" title="Delete this session">✕</button>
+    </div>`).join('');
+
+  document.querySelectorAll('.histCard').forEach(card =>
+    card.addEventListener('click', e => {
+      if (e.target.classList.contains('histDel')) return;
+      restoreSession(+card.dataset.id);
+    }));
+  document.querySelectorAll('.histDel').forEach(btn =>
+    btn.addEventListener('click', async e => {
+      e.stopPropagation();
+      await deleteSession(+btn.dataset.id).catch(() => {});
+      renderHistory();
+    }));
+
+  drawTrend($('trendChart'), sessions);
+}
+
+async function restoreSession(id) {
+  const s = await getSession(id).catch(() => null);
+  if (!s) return;
+  setStatus('Loading saved session…');
+  state.frames = s.frames;
+  state.sourceName = s.name;
+  state.videoBlob = s.videoBlob || null;
+  $('dropzone').classList.add('hidden');
+  if (s.videoBlob) {
+    const video = $('video');
+    state.video = video;
+    video.src = URL.createObjectURL(s.videoBlob);
+    video.muted = true;
+    video.playsInline = true;
+    await new Promise(r => { video.onloadedmetadata = r; });
+    $('stage').classList.remove('hidden');
+    sizeCanvas();
+  } else {
+    $('stage').classList.add('hidden');
+  }
+  analyze({ save: false });
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function drawTrend(canvas, sessions) {
+  const pts = [...sessions].reverse().filter(s => s.overall !== null && s.overall !== undefined);
+  if (pts.length < 2) { canvas.classList.add('hidden'); return; }
+  canvas.classList.remove('hidden');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width = canvas.offsetWidth * 2;
+  const H = canvas.height = canvas.offsetHeight * 2;
+  ctx.clearRect(0, 0, W, H);
+  const pad = 34;
+  const X = i => pad + (i / (pts.length - 1)) * (W - pad * 2);
+  const Y = v => H - pad - (v / 100) * (H - pad * 2);
+  ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+  for (const g of [25, 50, 75, 100]) {
+    ctx.beginPath(); ctx.moveTo(pad, Y(g)); ctx.lineTo(W - pad, Y(g)); ctx.stroke();
+  }
+  ctx.beginPath();
+  pts.forEach((s, i) => i ? ctx.lineTo(X(i), Y(s.overall)) : ctx.moveTo(X(0), Y(s.overall)));
+  ctx.strokeStyle = 'rgba(64,224,178,0.95)';
+  ctx.lineWidth = 3;
+  ctx.stroke();
+  ctx.fillStyle = '#40e0b2';
+  pts.forEach((s, i) => {
+    ctx.beginPath(); ctx.arc(X(i), Y(s.overall), 6, 0, Math.PI * 2); ctx.fill();
+  });
+  ctx.fillStyle = 'rgba(255,255,255,0.7)';
+  ctx.font = `${Math.round(W / 55)}px system-ui`;
+  ctx.textAlign = 'center';
+  pts.forEach((s, i) => ctx.fillText(String(s.overall), X(i), Y(s.overall) - 14));
+  ctx.textAlign = 'left';
+  ctx.fillText('Session score over time', pad, 24);
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
 // ---------- rendering ----------
@@ -413,12 +567,14 @@ function wireExport() {
     $('stage').classList.add('hidden');
     $('dropzone').classList.remove('hidden');
     setStatus('Engine ready. Drop your next video.', 'ok');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   });
 }
 
 // ---------- go ----------
 wireDropzone();
 wireExport();
+renderHistory();
 initModel().catch(e => setStatus('Engine failed to load: ' + e.message + ' — try a Chromium-based browser.', 'err'));
 void DIMENSIONS;
 

@@ -149,10 +149,40 @@
     padding: 12px 22px; font-size: 15px; font-weight: 600; cursor: pointer;
   }
   .btn.ghost { background: transparent; color: var(--accent); border: 1px solid rgba(64,224,178,0.4); }
+  .btn.small { padding: 10px 16px; font-size: 14px; white-space: nowrap; }
+
+  .urlRow { display: flex; gap: 10px; margin-bottom: 14px; }
+  .urlRow input {
+    flex: 1; background: var(--panel2); color: var(--ink); border: 1px solid var(--line);
+    border-radius: 10px; padding: 10px 14px; font-size: 14px; min-width: 0;
+  }
+  .urlRow input::placeholder { color: var(--dim); }
+
+  #historySec { margin-bottom: 26px; }
+  #trendChart { width: 100%; height: 150px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; margin-bottom: 12px; }
+  #historyList { display: flex; flex-direction: column; gap: 8px; }
+  .histCard {
+    display: flex; align-items: center; gap: 14px; background: var(--panel);
+    border: 1px solid var(--line); border-radius: 14px; padding: 12px 16px; cursor: pointer;
+  }
+  .histCard:hover { border-color: rgba(64,224,178,0.5); }
+  .histScore {
+    flex: 0 0 46px; height: 46px; border-radius: 50%; background: var(--panel2);
+    color: var(--accent); font-weight: 700; font-size: 17px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .histMeta { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .histMeta strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .histMeta span { color: var(--dim); font-size: 13px; }
+  .histDel {
+    background: transparent; border: none; color: var(--dim); font-size: 15px;
+    cursor: pointer; padding: 8px;
+  }
+  .histDel:hover { color: var(--bad); }
 
   @media print {
     body { background: #fff; color: #111; }
-    #stage, .actions, #dropzone, .controls, .status { display: none !important; }
+    #stage, .actions, #dropzone, .controls, .status, .urlRow, #historySec { display: none !important; }
     .card, #focusFive li, .drill, table, #aiCoach, .planCard, .scoreCard, .radarCard { border-color: #ccc; background: #fff; }
   }
 </style>
@@ -173,6 +203,20 @@
       <option value="right" selected>Right hand</option>
       <option value="left">Left hand</option>
     </select>
+  </div>
+
+  <div id="historySec" class="hidden">
+    <section style="margin-top:0">
+      <h3>Past Sessions</h3>
+      <div class="sectionSub">Every analysis is saved on this device — tap one to reopen it, no re-upload needed.</div>
+      <canvas id="trendChart" class="hidden"></canvas>
+      <div id="historyList"></div>
+    </section>
+  </div>
+
+  <div class="urlRow">
+    <input type="url" id="urlInput" placeholder="Paste a direct video link (.mp4) — or use the drop box below" />
+    <button class="btn small" id="urlBtn">Analyze Link</button>
   </div>
 
   <div id="dropzone">
