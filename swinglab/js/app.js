@@ -22,26 +22,60 @@ const state = {
 };
 
 // ---------- boot ----------
+const IS_MOBILE = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ||
+  (navigator.maxTouchPoints > 1 && /Mac/.test(navigator.userAgent)); // iPadOS masquerades as Mac
+
 async function initModel() {
-  setStatus('Loading pose-tracking engine (33-point body model)…');
+  setStatus('Loading body-tracking engine…');
   const fileset = await FilesetResolver.forVisionTasks('./vendor/wasm');
-  state.landmarker = await PoseLandmarker.createFromOptions(fileset, {
-    baseOptions: { modelAssetPath: './vendor/pose_landmarker_full.task', delegate: 'GPU' },
+
+  // Phones get the lite model (5.8MB, several× faster); desktops get full accuracy.
+  const modelFile = IS_MOBILE ? 'pose_landmarker_lite.task' : 'pose_landmarker_full.task';
+  const resp = await fetch('./vendor/' + modelFile);
+  if (!resp.ok) throw new Error('model download failed (' + resp.status + ')');
+  const total = +resp.headers.get('Content-Length') || 0;
+  let modelBuf;
+  if (resp.body && total) {
+    const reader = resp.body.getReader();
+    const chunks = [];
+    let got = 0, lastPct = -1;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      got += value.length;
+      const pct = Math.round((got / total) * 100);
+      if (pct !== lastPct) { lastPct = pct; setStatus(`Downloading body-tracking model… ${pct}%`); }
+    }
+    modelBuf = new Uint8Array(got);
+    let off = 0;
+    for (const c of chunks) { modelBuf.set(c, off); off += c.length; }
+  } else {
+    modelBuf = new Uint8Array(await resp.arrayBuffer());
+  }
+
+  setStatus('Starting engine…');
+  const make = delegate => PoseLandmarker.createFromOptions(fileset, {
+    baseOptions: { modelAssetBuffer: modelBuf, delegate },
     runningMode: 'VIDEO',
     numPoses: 1,
     minPoseDetectionConfidence: 0.5,
     minPosePresenceConfidence: 0.5,
     minTrackingConfidence: 0.5,
-  }).catch(async () => {
-    // GPU delegate unavailable → CPU fallback
-    return PoseLandmarker.createFromOptions(fileset, {
-      baseOptions: { modelAssetPath: './vendor/pose_landmarker_full.task', delegate: 'CPU' },
-      runningMode: 'VIDEO', numPoses: 1,
-    });
   });
-  setStatus('Engine ready. Drop your SwingVision export to begin.', 'ok');
+  state.landmarker = await make('GPU').catch(() => make('CPU'));
+  setStatus('Engine ready. Load your SwingVision export to begin.', 'ok');
   $('dropzone').classList.add('ready');
 }
+
+// Surface any silent failure in the status bar so "nothing happened" becomes diagnosable
+window.addEventListener('error', e => {
+  setStatus('Something broke: ' + (e.message || 'unknown error') + ' — screenshot this message for Claude.', 'err');
+});
+window.addEventListener('unhandledrejection', e => {
+  const msg = e.reason && e.reason.message ? e.reason.message : String(e.reason);
+  setStatus('Something broke: ' + msg + ' — screenshot this message for Claude.', 'err');
+});
 
 function setStatus(msg, cls = '') {
   const el = $('status');
@@ -112,7 +146,7 @@ function loadVideo(file, nameOverride) {
     sizeCanvas();
     processVideo();
   };
-  video.onerror = () => setStatus('Couldn\'t decode that video. Re-export from SwingVision as MP4 and try again.', 'err');
+  video.onerror = () => setStatus('Couldn\'t decode that video on this device. iPhone .mov files often use HEVC, which desktop browsers can\'t always play — either open this site on your phone (it plays HEVC natively), or export from SwingVision as an MP4.', 'err');
 }
 
 function sizeCanvas() {
@@ -152,10 +186,23 @@ async function processVideo() {
   const STEP = 1 / 30;
   video.pause();
 
+  // Safari quirk: seeking to the current time fires no 'seeked' event, and a
+  // missed event would hang the whole pipeline — so every seek also has a
+  // timeout escape hatch.
   const seekTo = t => new Promise(resolve => {
-    const done = () => { video.removeEventListener('seeked', done); resolve(); };
-    video.addEventListener('seeked', done);
-    video.currentTime = Math.min(t, duration - 0.001);
+    const target = Math.min(t, duration - 0.001);
+    if (Math.abs(video.currentTime - target) < 0.002 && video.readyState >= 2) return resolve();
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      video.removeEventListener('seeked', finish);
+      clearTimeout(guard);
+      resolve();
+    };
+    const guard = setTimeout(finish, 1000);
+    video.addEventListener('seeked', finish);
+    video.currentTime = target;
   });
 
   let lastTs = 0; // MediaPipe requires strictly monotonically increasing integer timestamps
@@ -822,6 +869,9 @@ wireDropzone();
 wireExport();
 wireReplayBar();
 renderHistory();
+if (IS_MOBILE) {
+  $('dropzone').querySelector('h2').textContent = 'Tap to choose your swing video';
+}
 initModel().catch(e => setStatus('Engine failed to load: ' + e.message + ' — try a Chromium-based browser.', 'err'));
 void DIMENSIONS;
 
