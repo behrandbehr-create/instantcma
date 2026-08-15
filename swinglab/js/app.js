@@ -156,6 +156,63 @@ function sizeCanvas() {
 }
 
 // ---------- processing ----------
+// PASS 1: cheap motion scan (no ML) — finds the active-play segments so the
+// expensive pose model never runs on the dead time between points. On a full
+// match export this typically skips 60-80% of the video.
+async function scanMotion(video, duration, seekTo) {
+  const W = 96, H = 54;
+  const cv = document.createElement('canvas');
+  cv.width = W; cv.height = H;
+  const cx = cv.getContext('2d', { willReadFrequently: true });
+  const STEP = 0.25;
+  const times = [], energy = [];
+  let prev = null;
+  const t0 = performance.now();
+  for (let t = 0; t < duration && state.processing; t += STEP) {
+    await seekTo(t);
+    cx.drawImage(video, 0, 0, W, H);
+    const px = cx.getImageData(0, 0, W, H).data;
+    if (prev) {
+      let e = 0;
+      for (let i = 0; i < px.length; i += 16) e += Math.abs(px[i] - prev[i]);
+      times.push(t);
+      energy.push(e);
+    }
+    prev = px.slice();
+    if (times.length % 20 === 0) {
+      const p = (t / duration) * 100;
+      const elapsed = (performance.now() - t0) / 1000;
+      const eta = p > 2 ? Math.round(elapsed * (100 - p) / p) : null;
+      $('progressBar').style.width = (p * 0.25) + '%';
+      $('progressPct').textContent = 'Finding the action… ' + Math.round(p) + '%' + (eta !== null ? ` · ~${eta}s` : '');
+      await new Promise(r => setTimeout(r, 0));
+    }
+  }
+  if (!times.length) return [[0, duration]];
+
+  const sorted = [...energy].sort((a, b) => a - b);
+  const median = sorted[Math.floor(sorted.length / 2)];
+  const p90 = sorted[Math.floor(sorted.length * 0.9)];
+  const thr = Math.max(median * 1.6, p90 * 0.3, 1);
+
+  // Active windows: expand each hot sample, then merge close neighbours
+  const raw = [];
+  for (let i = 0; i < times.length; i++) {
+    if (energy[i] > thr) raw.push([Math.max(0, times[i] - 1.3), Math.min(duration, times[i] + 1.0)]);
+  }
+  if (!raw.length) return [[0, duration]];
+  const merged = [raw[0]];
+  for (const [s, e] of raw.slice(1)) {
+    const last = merged[merged.length - 1];
+    if (s <= last[1] + 1.0) last[1] = Math.max(last[1], e);
+    else merged.push([s, e]);
+  }
+  const active = merged.reduce((sum, [s, e]) => sum + (e - s), 0);
+  // Mostly-action clip → gating buys nothing, analyze it all
+  if (active > duration * 0.65) return [[0, duration]];
+  return merged;
+}
+
 async function processVideo() {
   const video = $('video');
   state.frames = [];
@@ -163,6 +220,10 @@ async function processVideo() {
   state.processing = true;
   $('progressWrap').classList.remove('hidden');
   setStatus('Tracking your body frame-by-frame…');
+
+  // Keep the phone screen awake — locking the screen mid-analysis kills the job
+  let wakeLock = null;
+  try { wakeLock = await navigator.wakeLock?.request('screen'); } catch {}
 
   // Deterministic seek-stepping: every frame is analyzed no matter how slow
   // the device is (a realtime-playback loop silently drops frames on slow GPUs).
@@ -183,7 +244,7 @@ async function processVideo() {
     $('progressWrap').classList.add('hidden');
     return;
   }
-  const STEP = 1 / 30;
+  const STEP = IS_MOBILE ? 1 / 24 : 1 / 30;
   video.pause();
 
   // Safari quirk: seeking to the current time fires no 'seeked' event, and a
@@ -205,33 +266,53 @@ async function processVideo() {
     video.currentTime = target;
   });
 
+  // Motion pre-scan (only pays off on longer videos)
+  let segments = [[0, duration]];
+  let scanned = false;
+  if (duration > 75) {
+    segments = await scanMotion(video, duration, seekTo);
+    scanned = true;
+  }
+  state.segments = segments;
+  const activeTotal = segments.reduce((s, [a, b]) => s + (b - a), 0);
+  if (segments.length > 1 || activeTotal < duration * 0.9) {
+    setStatus(`Found ${segments.length} active segment${segments.length === 1 ? '' : 's'} (${Math.round(activeTotal)}s of play in a ${Math.round(duration)}s video) — skipping the dead time.`);
+  }
+
   let lastTs = 0; // MediaPipe requires strictly monotonically increasing integer timestamps
   const t0 = performance.now();
-  for (let t = 0; t < duration && state.processing; t += STEP) {
-    await seekTo(t);
-    try {
-      lastTs = Math.max(lastTs + 1, Math.round(t * 1000));
-      const res = state.landmarker.detectForVideo(video, lastTs);
-      const has = res.landmarks && res.landmarks.length > 0;
-      state.frames.push({
-        t,
-        world: has ? res.worldLandmarks[0] : null,
-        image: has ? res.landmarks[0] : null,
-      });
-      drawOverlay(has ? res.landmarks[0] : null);
-    } catch (e) {
-      state.frames.push({ t, world: null, image: null });
-    }
-    const p = Math.min(100, (t / duration) * 100);
-    if (state.frames.length % 5 === 0 || p >= 99) {
-      const elapsed = (performance.now() - t0) / 1000;
-      const eta = p > 2 ? Math.round(elapsed * (100 - p) / p) : null;
-      $('progressBar').style.width = p + '%';
-      $('progressPct').textContent = Math.round(p) + '%' + (eta !== null ? ` · ~${eta}s left` : '');
-      await new Promise(r => setTimeout(r, 0)); // let the UI breathe
+  let done = 0;
+  outer:
+  for (const [segStart, segEnd] of segments) {
+    for (let t = segStart; t < segEnd; t += STEP) {
+      if (!state.processing) break outer;
+      await seekTo(t);
+      try {
+        lastTs = Math.max(lastTs + 1, Math.round(t * 1000));
+        const res = state.landmarker.detectForVideo(video, lastTs);
+        const has = res.landmarks && res.landmarks.length > 0;
+        state.frames.push({
+          t,
+          world: has ? res.worldLandmarks[0] : null,
+          image: has ? res.landmarks[0] : null,
+        });
+        drawOverlay(has ? res.landmarks[0] : null);
+      } catch (e) {
+        state.frames.push({ t, world: null, image: null });
+      }
+      done += STEP;
+      const p = Math.min(100, (done / activeTotal) * 100);
+      if (state.frames.length % 5 === 0 || p >= 99) {
+        const elapsed = (performance.now() - t0) / 1000;
+        const eta = p > 2 ? Math.round(elapsed * (100 - p) / p) : null;
+        $('progressBar').style.width = (scanned ? 25 + p * 0.75 : p) + '%';
+        $('progressPct').textContent = 'Analyzing mechanics… ' + Math.round(p) + '%' + (eta !== null ? ` · ~${eta}s left` : '');
+        await new Promise(r => setTimeout(r, 0)); // let the UI breathe
+      }
     }
   }
 
+  try { wakeLock?.release(); } catch {}
   state.processing = false;
   $('progressWrap').classList.add('hidden');
   analyze();
