@@ -164,7 +164,7 @@ async function scanMotion(video, duration, seekTo) {
   const cv = document.createElement('canvas');
   cv.width = W; cv.height = H;
   const cx = cv.getContext('2d', { willReadFrequently: true });
-  const STEP = 0.25;
+  const STEP = 0.5;
   const times = [], energy = [];
   let prev = null;
   const t0 = performance.now();
@@ -198,7 +198,7 @@ async function scanMotion(video, duration, seekTo) {
   // Active windows: expand each hot sample, then merge close neighbours
   const raw = [];
   for (let i = 0; i < times.length; i++) {
-    if (energy[i] > thr) raw.push([Math.max(0, times[i] - 1.3), Math.min(duration, times[i] + 1.0)]);
+    if (energy[i] > thr) raw.push([Math.max(0, times[i] - 1.5), Math.min(duration, times[i] + 1.2)]);
   }
   if (!raw.length) return [[0, duration]];
   const merged = [raw[0]];
