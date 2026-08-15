@@ -103,11 +103,26 @@ function wireDropzone() {
   urlInput.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
 }
 
+// Rewrite share-page links into direct-download form where the pattern is known
+// (Dropbox "scl" share links → dl.dropboxusercontent.com with dl=1).
+function normalizeVideoURL(u) {
+  try {
+    const url = new URL(u);
+    if (url.hostname.endsWith('dropbox.com') && url.pathname.startsWith('/scl/')) {
+      url.hostname = 'dl.dropboxusercontent.com';
+      url.searchParams.set('dl', '1');
+      return url.toString();
+    }
+  } catch {}
+  return u;
+}
+
 // Try to pull a video straight from a pasted link. Works for direct video
 // links whose host allows cross-site access; SwingVision match PAGES block
 // browser access, so those get a clear explanation instead of a cryptic error.
 async function loadVideoFromURL(url) {
   if (!state.landmarker) { setStatus('Engine still loading — one moment…'); return; }
+  url = normalizeVideoURL(url);
   if (/swing\.vision\/(matches|share)/i.test(url) && !/\.(mp4|mov|m4v|webm)(\?|$)/i.test(url)) {
     setStatus('That\'s a SwingVision match page — their site doesn\'t let other websites read it directly. In the SwingVision app: Share → Save Video, then drop the file here (it stays saved in your history afterward).', 'err');
     return;
@@ -117,7 +132,7 @@ async function loadVideoFromURL(url) {
     const res = await fetch(url, { mode: 'cors' });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const blob = await res.blob();
-    if (!blob.type.startsWith('video/') && !/\.(mp4|mov|m4v|webm)(\?|$)/i.test(url)) {
+    if (!blob.type.startsWith('video/') && !/\.(mp4|mov|m4v|webm)(\?|&|$)/i.test(url)) {
       throw new Error('not a video (' + (blob.type || 'unknown type') + ')');
     }
     let name;
@@ -156,61 +171,9 @@ function sizeCanvas() {
 }
 
 // ---------- processing ----------
-// PASS 1: cheap motion scan (no ML) — finds the active-play segments so the
-// expensive pose model never runs on the dead time between points. On a full
-// match export this typically skips 60-80% of the video.
-async function scanMotion(video, duration, seekTo) {
-  const W = 96, H = 54;
-  const cv = document.createElement('canvas');
-  cv.width = W; cv.height = H;
-  const cx = cv.getContext('2d', { willReadFrequently: true });
-  const STEP = 0.5;
-  const times = [], energy = [];
-  let prev = null;
-  const t0 = performance.now();
-  for (let t = 0; t < duration && state.processing; t += STEP) {
-    await seekTo(t);
-    cx.drawImage(video, 0, 0, W, H);
-    const px = cx.getImageData(0, 0, W, H).data;
-    if (prev) {
-      let e = 0;
-      for (let i = 0; i < px.length; i += 16) e += Math.abs(px[i] - prev[i]);
-      times.push(t);
-      energy.push(e);
-    }
-    prev = px.slice();
-    if (times.length % 20 === 0) {
-      const p = (t / duration) * 100;
-      const elapsed = (performance.now() - t0) / 1000;
-      const eta = p > 2 ? Math.round(elapsed * (100 - p) / p) : null;
-      $('progressBar').style.width = (p * 0.25) + '%';
-      $('progressPct').textContent = 'Finding the action… ' + Math.round(p) + '%' + (eta !== null ? ` · ~${eta}s` : '');
-      await new Promise(r => setTimeout(r, 0));
-    }
-  }
-  if (!times.length) return [[0, duration]];
-
-  const sorted = [...energy].sort((a, b) => a - b);
-  const median = sorted[Math.floor(sorted.length / 2)];
-  const p90 = sorted[Math.floor(sorted.length * 0.9)];
-  const thr = Math.max(median * 1.6, p90 * 0.3, 1);
-
-  // Active windows: expand each hot sample, then merge close neighbours
-  const raw = [];
-  for (let i = 0; i < times.length; i++) {
-    if (energy[i] > thr) raw.push([Math.max(0, times[i] - 1.5), Math.min(duration, times[i] + 1.2)]);
-  }
-  if (!raw.length) return [[0, duration]];
-  const merged = [raw[0]];
-  for (const [s, e] of raw.slice(1)) {
-    const last = merged[merged.length - 1];
-    if (s <= last[1] + 1.0) last[1] = Math.max(last[1], e);
-    else merged.push([s, e]);
-  }
-  const active = merged.reduce((sum, [s, e]) => sum + (e - s), 0);
-  // Mostly-action clip → gating buys nothing, analyze it all
-  if (active > duration * 0.65) return [[0, duration]];
-  return merged;
+function fmtEta(s) {
+  s = Math.round(s);
+  return s >= 90 ? Math.round(s / 60) + ' min' : s + 's';
 }
 
 async function processVideo() {
@@ -244,74 +207,55 @@ async function processVideo() {
     $('progressWrap').classList.add('hidden');
     return;
   }
-  const STEP = IS_MOBILE ? 1 / 24 : 1 / 30;
-  video.pause();
 
-  // Safari quirk: seeking to the current time fires no 'seeked' event, and a
-  // missed event would hang the whole pipeline — so every seek also has a
-  // timeout escape hatch.
-  const seekTo = t => new Promise(resolve => {
-    const target = Math.min(t, duration - 0.001);
-    if (Math.abs(video.currentTime - target) < 0.002 && video.readyState >= 2) return resolve();
+  // Single playback pass: the video plays once at normal speed while the pose
+  // model samples the presented frames. Decoding stays sequential (hardware,
+  // effectively free) — the old seek-per-frame approach forced iPhones to
+  // re-decode from the previous keyframe on EVERY step, which turned long
+  // HEVC clips into multi-hour jobs. Total time now ≈ the video's duration.
+  const TARGET = IS_MOBILE ? 1 / 20 : 1 / 30; // seconds between samples
+  let lastTs = 0; // MediaPipe requires strictly monotonically increasing integer timestamps
+  let nextSample = 0;
+  video.muted = true;
+  video.playbackRate = 1;
+  video.currentTime = 0;
+  setStatus('Tracking your body — one pass through the video…');
+  await video.play().catch(() => {});
+
+  await new Promise(resolve => {
     let settled = false;
-    const finish = () => {
-      if (settled) return;
-      settled = true;
-      video.removeEventListener('seeked', finish);
-      clearTimeout(guard);
-      resolve();
+    const finish = () => { if (!settled) { settled = true; resolve(); } };
+    if (!('requestVideoFrameCallback' in HTMLVideoElement.prototype)) return finish();
+    const onFrame = (_now, meta) => {
+      if (!state.processing) return finish();
+      const t = meta.mediaTime;
+      if (t >= nextSample) {
+        nextSample = t + TARGET;
+        try {
+          lastTs = Math.max(lastTs + 1, Math.round(t * 1000));
+          const res = state.landmarker.detectForVideo(video, lastTs);
+          const has = res.landmarks && res.landmarks.length > 0;
+          state.frames.push({
+            t,
+            world: has ? res.worldLandmarks[0] : null,
+            image: has ? res.landmarks[0] : null,
+          });
+          drawOverlay(has ? res.landmarks[0] : null);
+        } catch (e) {
+          state.frames.push({ t, world: null, image: null });
+        }
+        const p = Math.min(100, (t / duration) * 100);
+        $('progressBar').style.width = p + '%';
+        $('progressPct').textContent = `Analyzing mechanics… ${Math.round(p)}% · ~${fmtEta(Math.max(0, duration - t))} left`;
+      }
+      if (video.ended) return finish();
+      video.requestVideoFrameCallback(onFrame);
     };
-    const guard = setTimeout(finish, 1000);
-    video.addEventListener('seeked', finish);
-    video.currentTime = target;
+    video.requestVideoFrameCallback(onFrame);
+    video.addEventListener('ended', finish, { once: true });
   });
 
-  // Motion pre-scan (only pays off on longer videos)
-  let segments = [[0, duration]];
-  let scanned = false;
-  if (duration > 75) {
-    segments = await scanMotion(video, duration, seekTo);
-    scanned = true;
-  }
-  state.segments = segments;
-  const activeTotal = segments.reduce((s, [a, b]) => s + (b - a), 0);
-  if (segments.length > 1 || activeTotal < duration * 0.9) {
-    setStatus(`Found ${segments.length} active segment${segments.length === 1 ? '' : 's'} (${Math.round(activeTotal)}s of play in a ${Math.round(duration)}s video) — skipping the dead time.`);
-  }
-
-  let lastTs = 0; // MediaPipe requires strictly monotonically increasing integer timestamps
-  const t0 = performance.now();
-  let done = 0;
-  outer:
-  for (const [segStart, segEnd] of segments) {
-    for (let t = segStart; t < segEnd; t += STEP) {
-      if (!state.processing) break outer;
-      await seekTo(t);
-      try {
-        lastTs = Math.max(lastTs + 1, Math.round(t * 1000));
-        const res = state.landmarker.detectForVideo(video, lastTs);
-        const has = res.landmarks && res.landmarks.length > 0;
-        state.frames.push({
-          t,
-          world: has ? res.worldLandmarks[0] : null,
-          image: has ? res.landmarks[0] : null,
-        });
-        drawOverlay(has ? res.landmarks[0] : null);
-      } catch (e) {
-        state.frames.push({ t, world: null, image: null });
-      }
-      done += STEP;
-      const p = Math.min(100, (done / activeTotal) * 100);
-      if (state.frames.length % 5 === 0 || p >= 99) {
-        const elapsed = (performance.now() - t0) / 1000;
-        const eta = p > 2 ? Math.round(elapsed * (100 - p) / p) : null;
-        $('progressBar').style.width = (scanned ? 25 + p * 0.75 : p) + '%';
-        $('progressPct').textContent = 'Analyzing mechanics… ' + Math.round(p) + '%' + (eta !== null ? ` · ~${eta}s left` : '');
-        await new Promise(r => setTimeout(r, 0)); // let the UI breathe
-      }
-    }
-  }
-
+  video.pause();
   try { wakeLock?.release(); } catch {}
   state.processing = false;
   $('progressWrap').classList.add('hidden');
