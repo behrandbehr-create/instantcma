@@ -11,6 +11,12 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0a0f14">
 <meta name="description" content="Drop in a swing video and get an ATP-grade biomechanics breakdown: 33-point body tracking, kinetic-chain timing, ghost-coach replay and a prescribed drill plan. Runs entirely in your browser.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="SwingLab — ATP Biomechanics Coach">
+<meta property="og:description" content="Film your tennis swing, get an ATP-style biomechanics breakdown with a ghost coach. Free — runs entirely on your phone, nothing is uploaded.">
+<meta property="og:url" content="https://behrandbehr-create.github.io/instantcma/">
+<meta property="og:image" content="https://behrandbehr-create.github.io/instantcma/assets/icon-512.png">
+<meta name="twitter:card" content="summary_large_image">
 <style>
   :root {
     --bg: #0a0f14;
@@ -217,6 +223,12 @@
     #player.pinned #replayCoach { padding: 10px 13px; margin-top: 7px; }
     #player.pinned #replayCues { margin-top: 6px; gap: 6px; }
   }
+
+  #tapToStart {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    background: rgba(6,10,14,0.55); backdrop-filter: blur(2px);
+  }
+  #tapToStart .btn { font-size: 18px; padding: 16px 30px; }
 
   #stageIdle {
     position: absolute; inset: auto 0 0 0; display: flex; justify-content: center;
@@ -493,7 +505,7 @@
     body::before, header.hero::after { display: none; }
     :root { --rs: 1; }
     #player, .actions, #dropzone, .controls, .status, .urlRow, #historySec,
-    #compareSec, #installHint, #noReplay { display: none !important; }
+    #compareSec, #installHint, #noReplay, #shareSec { display: none !important; }
     header.hero { min-height: 0; background-image: none; background-color: #fff; border-color: #ccc; }
     header.hero h1, header.hero .sub, .privacy { color: #111; text-shadow: none; }
     .artBand { background-image: none; background-color: #fff; border-color: #ccc; min-height: 0; padding: 0 0 6px; }
@@ -593,6 +605,9 @@
     <div id="stage">
       <video id="video" playsinline muted></video>
       <canvas id="overlay"></canvas>
+      <div id="tapToStart" class="hidden">
+        <button class="btn" id="tapToStartBtn">▶&nbsp; Start analysis</button>
+      </div>
       <div id="stageIdle" class="hidden"><span id="stageIdleText">Tap a swing below to replay it in slow motion</span></div>
     </div>
 
@@ -706,10 +721,19 @@
     </section>
 
     <div class="actions">
-      <button class="btn" id="printBtn">Print / Save Report as PDF</button>
+      <button class="btn" id="shareResultsBtn">📤 Share My Score</button>
+      <button class="btn ghost" id="printBtn">Print / Save Report as PDF</button>
       <button class="btn ghost" id="newVideoBtn">Analyze Another Video</button>
     </div>
   </div>
+
+  <section id="shareSec">
+    <h3>Share SwingLab</h3>
+    <div class="sectionSub">The link is all a friend needs — they open it, drop in their own swing video, and get the full breakdown. Everything runs on their phone; nothing is ever uploaded.</div>
+    <div class="actions" style="margin-top:0">
+      <button class="btn" id="shareAppBtn">🎾 Send SwingLab to a friend</button>
+    </div>
+  </section>
 </div>
 <script type="module" src="./js/app.js"></script>
 </body>

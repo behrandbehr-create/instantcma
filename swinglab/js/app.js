@@ -114,6 +114,7 @@ function showPlayer(title, hint = '') {
 }
 function hidePlayer() {
   $('player').classList.add('hidden');
+  $('tapToStart').classList.add('hidden');
 }
 function setPlayerTitle(title, hint = '') {
   $('playerTitle').textContent = title;
@@ -213,12 +214,31 @@ function loadVideo(file, nameOverride) {
   // ratio and the overlay canvas would be sized 0×0 (a blank black window).
   video.onresize = sizeCanvas;
   video.onloadeddata = sizeCanvas;
+  // Error events are NOT always fatal. iOS Safari fires them on transient
+  // decode hiccups mid-stream (common with HEVC exports), and an unconditional
+  // teardown here is what made the video window vanish right after loading a
+  // clip. Only give up when there is genuinely nothing to work with.
   video.onerror = () => {
+    const me = video.error;
+    const detail = me ? ` (media error ${me.code}${me.message ? ': ' + me.message : ''})` : '';
+    if (!state.processing && state.report) {
+      // Late/spurious error after a completed analysis — the report is fine.
+      console.warn('Ignoring late video error' + detail);
+      return;
+    }
+    if (state.processing && state.frames.length >= 30) {
+      // Decode died partway through, but we already have real data — finish
+      // the pass and analyze what we captured instead of throwing it away.
+      setStatus(`Video decode stopped early${detail} — analyzing the ${state.frames.length} frames captured so far.`);
+      state.processing = false; // the sampling loop sees this and finishes
+      return;
+    }
     state.processing = false;
     $('progressWrap').classList.add('hidden');
+    $('tapToStart').classList.add('hidden');
     hidePlayer();
     showIntake(true);
-    setStatus('Couldn\'t decode that video on this device. iPhone .mov files often use HEVC, which desktop browsers can\'t always play — either open this site on your phone (it plays HEVC natively), or export from SwingVision as an MP4.', 'err');
+    setStatus('Couldn\'t decode that video on this device' + detail + '. iPhone .mov files often use HEVC, which desktop browsers can\'t always play — either open this site on your phone (it plays HEVC natively), or export from SwingVision as an MP4.', 'err');
   };
 }
 
@@ -307,7 +327,29 @@ async function processVideo() {
   video.playbackRate = 1;
   video.currentTime = 0;
   setStatus('Tracking your body — one pass through the video…');
+  // Phones in Low Power Mode (and some webviews) block even muted autoplay.
+  // Swallowing that rejection used to leave the video frozen at 0:00 until the
+  // watchdog killed the pass. Instead, put a real play button on the stage —
+  // a user tap satisfies the autoplay policy every time.
   await video.play().catch(() => {});
+  if (video.paused && !video.ended) {
+    $('tapToStart').classList.remove('hidden');
+    setStatus('Your phone blocked auto-play (usually Low Power Mode) — tap the play button on the video to start the analysis.');
+    await new Promise(resolve => {
+      const go = () => { video.play().catch(() => {}); };
+      $('tapToStartBtn').onclick = go;
+      video.addEventListener('playing', function onPlaying() {
+        video.removeEventListener('playing', onPlaying);
+        $('tapToStart').classList.add('hidden');
+        setStatus('Tracking your body — one pass through the video…');
+        resolve();
+      });
+    });
+  }
+  lastProgress = Date.now();
+  // If the tab is backgrounded and resumed, don't let the idle gap read as a stall.
+  const onPlayingKeepalive = () => { lastProgress = Date.now(); };
+  video.addEventListener('playing', onPlayingKeepalive);
 
   const sample = t => {
     if (t < nextSample) return;
@@ -368,12 +410,18 @@ async function processVideo() {
 
     video.addEventListener('ended', finish, { once: true });
     // Stalled decode (backgrounded tab, corrupt tail) — stop instead of hanging
-    // forever on a progress bar that never moves.
+    // forever on a progress bar that never moves. Only count idle time while
+    // the video claims to be playing: a user-paused or policy-paused video is
+    // waiting, not stalled. The long cap catches everything else.
     watchdog = setInterval(() => {
-      if (Date.now() - lastProgress > 20000) finish();
+      const idle = Date.now() - lastProgress;
+      if (idle > 20000 && !video.paused) finish();
+      if (idle > 120000) finish();
     }, 2000);
   });
 
+  video.removeEventListener('playing', onPlayingKeepalive);
+  $('tapToStart').classList.add('hidden');
   video.pause();
   try { wakeLock?.release(); } catch {}
   state.processing = false;
@@ -452,9 +500,12 @@ function analyze(opts = {}) {
   setStatus(`Analysis complete — ${state.swings.length} swing${state.swings.length > 1 ? 's' : ''} detected and measured.${coarse}`,
     coarse ? '' : 'ok');
 
-  // Park the video on the first swing with its skeleton drawn, so the window
-  // shows something meaningful instead of the last frame of the clip.
-  parkOnFirstSwing();
+  // Drop straight into the ghost-coach replay of the first swing: the video
+  // window immediately shows the slow-motion loop with the skeleton, the
+  // golden ghost, and the live coaching callouts — no tap required. Sessions
+  // restored without their video just park on a still frame instead.
+  if (state.video && state.videoBlob && state.measures.length) startReplay(0);
+  else parkOnFirstSwing();
   if (save) persistSession(agg);
 }
 
@@ -1230,6 +1281,154 @@ async function fetchAICoach(agg, report) {
   }
 }
 
+// ---------- sharing ----------
+// The whole app is a static page: anyone with the link gets the full analyzer,
+// and their videos are processed on their own device. Sharing is therefore
+// just handing over the URL — plus a rendered score card for showing off.
+const APP_URL = /^https?:$/.test(location.protocol)
+  ? location.origin + location.pathname
+  : 'https://behrandbehr-create.github.io/instantcma/';
+
+function wireShare() {
+  $('shareAppBtn').addEventListener('click', async () => {
+    const data = {
+      title: 'SwingLab — ATP Biomechanics Coach',
+      text: 'Film your tennis swing, get an ATP-style biomechanics breakdown with a ghost coach. Free, runs entirely on your phone:',
+      url: APP_URL,
+    };
+    if (navigator.share) {
+      try { await navigator.share(data); return; } catch { /* user cancelled → fall through */ }
+    }
+    try {
+      await navigator.clipboard.writeText(APP_URL);
+      $('shareAppBtn').textContent = '✓ Link copied — text it to a friend';
+    } catch {
+      setStatus('Share this link with your friends: ' + APP_URL, 'ok');
+    }
+  });
+  $('shareResultsBtn').addEventListener('click', shareResults);
+}
+
+// Render the session score card as a 1080×1350 PNG and hand it to the native
+// share sheet (or download it where the share sheet doesn't exist).
+function buildShareCard() {
+  const r = state.report;
+  if (!r) return null;
+  const W = 1080, H = 1350;
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const x = c.getContext('2d');
+
+  const bg = x.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, '#0d1723');
+  bg.addColorStop(1, '#0a0f14');
+  x.fillStyle = bg;
+  x.fillRect(0, 0, W, H);
+  const glow = x.createRadialGradient(W / 2, 420, 60, W / 2, 420, 500);
+  glow.addColorStop(0, 'rgba(64,224,178,0.14)');
+  glow.addColorStop(1, 'rgba(64,224,178,0)');
+  x.fillStyle = glow;
+  x.fillRect(0, 0, W, H);
+
+  x.textBaseline = 'alphabetic';
+  x.font = '800 92px system-ui, sans-serif';
+  x.fillStyle = '#e8f1f5';
+  const sw = x.measureText('Swing').width;
+  const tw = sw + x.measureText('Lab').width;
+  x.fillText('Swing', (W - tw) / 2, 150);
+  x.fillStyle = '#40e0b2';
+  x.fillText('Lab', (W - tw) / 2 + sw, 150);
+  x.font = '500 34px system-ui, sans-serif';
+  x.fillStyle = '#8fa3ad';
+  x.textAlign = 'center';
+  x.fillText('ATP biomechanics breakdown · ' + new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }), W / 2, 205);
+
+  // Score ring
+  const cx = W / 2, cy = 470, R = 185;
+  x.lineCap = 'round';
+  x.strokeStyle = 'rgba(255,255,255,0.09)';
+  x.lineWidth = 26;
+  x.beginPath(); x.arc(cx, cy, R, 0, Math.PI * 2); x.stroke();
+  x.strokeStyle = '#40e0b2';
+  x.shadowColor = 'rgba(64,224,178,0.6)';
+  x.shadowBlur = 30;
+  x.beginPath(); x.arc(cx, cy, R, -Math.PI / 2, -Math.PI / 2 + (r.overall / 100) * Math.PI * 2); x.stroke();
+  x.shadowBlur = 0;
+  x.font = '800 150px system-ui, sans-serif';
+  x.fillStyle = '#40e0b2';
+  x.fillText(String(r.overall), cx, cy + 42);
+  x.font = '600 34px system-ui, sans-serif';
+  x.fillStyle = '#8fa3ad';
+  x.fillText('/ 100', cx, cy + 95);
+
+  x.font = '700 40px system-ui, sans-serif';
+  x.fillStyle = '#ffb86b';
+  const label = r.overall >= 80 ? 'ATP-pattern mechanics' :
+    r.overall >= 60 ? 'Solid base — refinements needed' :
+    r.overall >= 40 ? 'Developing — big gains available' :
+    'Arm-dominant pattern — rebuild the chain';
+  x.fillText(label, cx, 745);
+  x.font = '500 32px system-ui, sans-serif';
+  x.fillStyle = '#8fa3ad';
+  x.fillText(`vs ATP pattern model · ${r.agg.swings} swing${r.agg.swings === 1 ? '' : 's'} · 33-point body tracking`, cx, 795);
+
+  // Top three focus areas with score bars
+  x.textAlign = 'left';
+  x.font = '700 30px system-ui, sans-serif';
+  x.fillStyle = '#40e0b2';
+  x.fillText('TOP 3 FOCUS AREAS', 90, 880);
+  r.topThree.forEach((d, i) => {
+    const y = 940 + i * 108;
+    x.fillStyle = '#e8f1f5';
+    x.font = '600 36px system-ui, sans-serif';
+    x.fillText(d.label, 90, y);
+    x.fillStyle = 'rgba(255,255,255,0.08)';
+    x.beginPath(); x.roundRect(90, y + 18, 820, 20, 10); x.fill();
+    const barW = Math.max(20, 820 * d.score / 100);
+    const bar = x.createLinearGradient(90, 0, 910, 0);
+    bar.addColorStop(0, '#ff6b81'); bar.addColorStop(1, '#ffb86b');
+    x.fillStyle = bar;
+    x.beginPath(); x.roundRect(90, y + 18, barW, 20, 10); x.fill();
+    x.fillStyle = '#ffb86b';
+    x.font = '800 40px system-ui, sans-serif';
+    x.textAlign = 'right';
+    x.fillText(String(Math.round(d.score)), 990, y + 38);
+    x.textAlign = 'left';
+  });
+
+  x.textAlign = 'center';
+  x.font = '500 28px system-ui, sans-serif';
+  x.fillStyle = '#8fa3ad';
+  x.fillText('Analyzed on-device — nothing uploaded', cx, 1265);
+  x.font = '600 32px system-ui, sans-serif';
+  x.fillStyle = '#40e0b2';
+  x.fillText(APP_URL.replace(/^https?:\/\//, ''), cx, 1310);
+  return c;
+}
+
+async function shareResults() {
+  const canvas = buildShareCard();
+  if (!canvas) { setStatus('Analyze a video first, then share the score card.', 'err'); return; }
+  const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
+  if (!blob) return;
+  const file = new File([blob], 'swinglab-score.png', { type: 'image/png' });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try {
+      await navigator.share({
+        files: [file],
+        title: 'My SwingLab score',
+        text: `I scored ${state.report.overall}/100 vs the ATP model on SwingLab — try it: ${APP_URL}`,
+      });
+      return;
+    } catch { /* cancelled → fall through to download */ }
+  }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'swinglab-score.png';
+  a.click();
+  setStatus('Score card saved — send the image to your friends along with the link: ' + APP_URL, 'ok');
+}
+
 // ---------- print/export ----------
 function wireExport() {
   $('printBtn').addEventListener('click', () => window.print());
@@ -1254,6 +1453,7 @@ wireReadScale();
 wireDropzone();
 wireExport();
 wireReplayBar();
+wireShare();
 renderHistory();
 if (IS_MOBILE) {
   $('dropzone').querySelector('h2').textContent = 'Tap to choose your swing video';
