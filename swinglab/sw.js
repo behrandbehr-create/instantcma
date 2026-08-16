@@ -1,11 +1,18 @@
 // SwingLab service worker: network-first for app code (so deploys land
 // immediately), cache-fallback for offline, cache-first for the big immutable
 // ML assets so repeat visits skip the 28MB download.
-const CACHE = 'swinglab-v1';
+const CACHE = 'swinglab-v2';
 const IMMUTABLE = /\/vendor\/|\/assets\//;
 
 self.addEventListener('install', e => self.skipWaiting());
-self.addEventListener('activate', e => e.waitUntil(clients.claim()));
+self.addEventListener('activate', e => e.waitUntil((async () => {
+  // Drop every cache from older versions so installed PWAs can't serve a
+  // stale mix of old and new app code after an update.
+  for (const key of await caches.keys()) {
+    if (key !== CACHE) await caches.delete(key);
+  }
+  await clients.claim();
+})()));
 
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
