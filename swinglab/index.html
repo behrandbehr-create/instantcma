@@ -163,7 +163,6 @@
     border-radius: 20px;
     box-shadow: 0 28px 70px -20px rgba(0, 0, 0, 0.95);
   }
-  @media (max-width: 700px) { #player.pinned { padding: 7px; } }
   .playerHead {
     display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
     padding: 10px 14px; font-size: 14.5px;
@@ -200,6 +199,24 @@
   }
   #player.pinned #replayBar,
   #player.pinned #replayCoach { margin-top: 8px; }
+
+  /* On a phone the pinned card's furniture (title + controls + cues) costs more
+     than the video does. Compact all of it and size the stage from a whole-card
+     height budget, so a third of the screen stays free for the report. */
+  @media (max-width: 700px) {
+    #player.pinned { padding: 7px; }
+    #player.pinned .playerHint { display: none; }
+    #player.pinned .playerHead { padding: 7px 11px; font-size: 13.5px; }
+    #player.pinned #stage { max-width: min(100%, calc((68vh - 273px) * var(--ar, 1.7778))); }
+    #player.pinned #replayBar { padding: 8px 10px; gap: 8px; margin-top: 7px; }
+    #player.pinned #replayBar .btn.small { padding: 7px 12px; font-size: 14px; }
+    #player.pinned #replaySpeed { padding: 6px 8px; font-size: 13.5px; }
+    #player.pinned #replayScrub { height: 22px; }
+    #player.pinned .ghostLabel { font-size: 13.5px; gap: 5px; }
+    #player.pinned .replayLabel { font-size: 15px; }
+    #player.pinned #replayCoach { padding: 10px 13px; margin-top: 7px; }
+    #player.pinned #replayCues { margin-top: 6px; gap: 6px; }
+  }
 
   #stageIdle {
     position: absolute; inset: auto 0 0 0; display: flex; justify-content: center;
@@ -372,8 +389,10 @@
     padding: 11px 18px; font-size: 15px; font-weight: 600; cursor: pointer; font-family: inherit;
     transition: border-color 0.15s, color 0.15s, transform 0.12s;
   }
-  .swingChip:hover { border-color: var(--accent); color: var(--accent); transform: translateY(-1px); }
+  .swingChip:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); transform: translateY(-1px); }
   .swingChip.on { border-color: var(--gold); color: var(--gold); background: rgba(255,216,140,0.1); }
+  .swingChip:disabled { opacity: 0.45; cursor: default; }
+  .swingNote { margin-top: 12px; color: var(--warn); font-size: var(--fs-small); }
 
   .drillGroup { margin-bottom: 26px; }
   .drillGroup h4 { color: var(--warn); margin-bottom: 12px; font-size: var(--fs-head); }
@@ -663,6 +682,7 @@
       </div>
       <div style="height:14px"></div>
       <div id="swingList"></div>
+      <div id="swingListNote" class="swingNote hidden"></div>
     </section>
 
     <section class="artSection">
