@@ -262,21 +262,30 @@ async function processVideo() {
   analyze();
 }
 
-function drawOverlay(imageLandmarks) {
+function drawOverlay(imageLandmarks, crop = null) {
   const canvas = $('overlay');
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (crop) {
+    const video = $('video');
+    const vw = video.videoWidth, vh = video.videoHeight;
+    if (vw && vh) {
+      ctx.drawImage(video, crop.x * vw, crop.y * vh, crop.f * vw, crop.f * vh,
+        0, 0, canvas.width, canvas.height);
+    }
+  }
   if (!imageLandmarks) return;
+  const pts = crop ? imageLandmarks.map(tfPoint) : imageLandmarks;
   const du = new DrawingUtils(ctx);
-  du.drawConnectors(imageLandmarks, PoseLandmarker.POSE_CONNECTIONS,
+  du.drawConnectors(pts, PoseLandmarker.POSE_CONNECTIONS,
     { color: 'rgba(64,224,178,0.9)', lineWidth: Math.max(2, canvas.width / 400) });
-  du.drawLandmarks(imageLandmarks,
+  du.drawLandmarks(pts,
     { color: '#e8fff7', radius: Math.max(2, canvas.width / 500), lineWidth: 1 });
   // Emphasize the kinetic-chain joints
   const key = [LM.L_HIP, LM.R_HIP, LM.L_SHOULDER, LM.R_SHOULDER];
   ctx.fillStyle = '#ffb86b';
   for (const i of key) {
-    const p = imageLandmarks[i];
+    const p = pts[i];
     ctx.beginPath();
     ctx.arc(p.x * canvas.width, p.y * canvas.height, Math.max(3, canvas.width / 300), 0, Math.PI * 2);
     ctx.fill();
@@ -312,63 +321,109 @@ function analyze(opts = {}) {
 }
 
 // ---------- history ----------
+// Two layers of persistence:
+//  1. IndexedDB — full record (optionally with replay frames + video)
+//  2. localStorage mirror — a tiny summary (agg + measures, a few KB) that
+//     survives even when a mobile browser evicts IndexedDB. Reports can be
+//     fully rebuilt from it; only video replay is lost.
+const TREND_KEY = 'swinglab_sessions_v1';
+
+function loadTrend() {
+  try { return JSON.parse(localStorage.getItem(TREND_KEY) || '[]'); } catch { return []; }
+}
+function saveTrend(list) {
+  try { localStorage.setItem(TREND_KEY, JSON.stringify(list.slice(-60))); } catch {}
+}
+
 async function persistSession(agg) {
+  const date = Date.now();
+  const name = state.sourceName || 'session';
+
+  // Layer 2 first — it must never be blocked by layer 1 failing
+  const trend = loadTrend();
+  trend.push({ date, name, overall: state.report.overall, swings: state.measures.length, agg, measures: state.measures });
+  saveTrend(trend);
+
+  try { await navigator.storage?.persist?.(); } catch {}
   try {
-    const record = {
-      date: Date.now(),
-      name: state.sourceName || 'session',
-      overall: state.report.overall,
-      swings: state.measures.length,
-      agg,
-      frames: state.frames,
-    };
-    if (state.videoBlob && state.videoBlob.size <= MAX_STORED_VIDEO) {
-      record.videoBlob = state.videoBlob;
+    const record = { date, name, overall: state.report.overall, swings: state.measures.length, agg, measures: state.measures };
+    // Replay data only when light enough to store reliably (huge records are
+    // exactly what makes mobile IndexedDB writes fail silently)
+    if (state.frames.length <= 3000) {
+      record.frames = state.frames;
+      const cap = IS_MOBILE ? 120 * 1024 * 1024 : MAX_STORED_VIDEO;
+      if (state.videoBlob && state.videoBlob.size <= cap) record.videoBlob = state.videoBlob;
     }
     await saveSession(record);
-    renderHistory();
   } catch (e) {
-    // Storage full or blocked — history is a convenience, never fatal
-    console.warn('history save failed:', e);
+    console.warn('IndexedDB save failed (summary still kept):', e);
   }
+  renderHistory();
 }
 
 async function renderHistory() {
   let sessions = [];
-  try { sessions = await listSessions(); } catch { return; }
+  try { sessions = await listSessions(); } catch { sessions = []; }
+  // Merge in localStorage summaries that IndexedDB no longer has (evicted or
+  // never saved) — matched by timestamp
+  const idbDates = new Set(sessions.map(s => s.date));
+  const summaries = loadTrend().filter(t => !idbDates.has(t.date))
+    .map(t => ({ ...t, id: null, hasVideo: false, summaryOnly: true }));
+  const all = [...sessions, ...summaries].sort((a, b) => b.date - a.date);
+
   const sec = $('historySec');
-  if (!sessions.length) { sec.classList.add('hidden'); return; }
+  if (!all.length) { sec.classList.add('hidden'); return; }
   sec.classList.remove('hidden');
-  $('historyList').innerHTML = sessions.map(s => `
-    <div class="histCard" data-id="${s.id}">
+  $('historyList').innerHTML = all.map((s, i) => `
+    <div class="histCard" data-id="${s.id ?? ''}" data-date="${s.date}">
       <div class="histScore">${s.overall ?? '–'}</div>
       <div class="histMeta">
         <strong>${escapeHtml(s.name)}</strong>
         <span>${new Date(s.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
         · ${s.swings} swing${s.swings === 1 ? '' : 's'}${s.hasVideo ? '' : ' · report only'}</span>
       </div>
-      <label class="histCmpWrap" title="Select two sessions to compare">
+      ${s.id !== null ? `<label class="histCmpWrap" title="Select two sessions to compare">
         <input type="checkbox" class="histCmp" data-id="${s.id}"> compare
-      </label>
-      <button class="histDel" data-id="${s.id}" title="Delete this session">✕</button>
+      </label>` : ''}
+      <button class="histDel" data-id="${s.id ?? ''}" data-date="${s.date}" title="Delete this session">✕</button>
     </div>`).join('');
 
   document.querySelectorAll('.histCard').forEach(card =>
     card.addEventListener('click', e => {
       if (e.target.classList.contains('histDel') || e.target.classList.contains('histCmp') ||
           e.target.classList.contains('histCmpWrap')) return;
-      restoreSession(+card.dataset.id);
+      if (card.dataset.id) restoreSession(+card.dataset.id);
+      else restoreSummary(+card.dataset.date);
     }));
   document.querySelectorAll('.histDel').forEach(btn =>
     btn.addEventListener('click', async e => {
       e.stopPropagation();
-      await deleteSession(+btn.dataset.id).catch(() => {});
+      if (btn.dataset.id) await deleteSession(+btn.dataset.id).catch(() => {});
+      saveTrend(loadTrend().filter(t => t.date !== +btn.dataset.date));
       renderHistory();
     }));
   document.querySelectorAll('.histCmp').forEach(cb =>
     cb.addEventListener('change', onCompareToggle));
 
-  drawTrend($('trendChart'), sessions);
+  drawTrend($('trendChart'), all);
+}
+
+// Rebuild a full report from a localStorage summary (no video/replay data)
+function restoreSummary(date) {
+  const s = loadTrend().find(t => t.date === date);
+  if (!s) return;
+  state.frames = [];
+  state.series = null;
+  state.swings = [];
+  state.measures = s.measures || [];
+  state.videoBlob = null;
+  state.sourceName = s.name;
+  state.report = buildReport(s.agg);
+  $('dropzone').classList.add('hidden');
+  $('stage').classList.add('hidden');
+  renderReport();
+  setStatus(`Loaded saved report from ${new Date(date).toLocaleDateString()} — replay isn't available for summary-only sessions.`, 'ok');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 // ---------- session compare ----------
@@ -474,10 +529,25 @@ async function restoreSession(id) {
   if (!s) return;
   setStatus('Loading saved session…');
   resetReplay();
-  state.frames = s.frames;
   state.sourceName = s.name;
   state.videoBlob = s.videoBlob || null;
   $('dropzone').classList.add('hidden');
+
+  if (!s.frames || !s.frames.length) {
+    // Compact record: rebuild the report from stored aggregates
+    state.frames = [];
+    state.series = null;
+    state.swings = [];
+    state.measures = s.measures || [];
+    state.report = buildReport(s.agg);
+    $('stage').classList.add('hidden');
+    renderReport();
+    setStatus(`Loaded saved report from ${new Date(s.date).toLocaleDateString()}.`, 'ok');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    return;
+  }
+
+  state.frames = s.frames;
   if (s.videoBlob) {
     const video = $('video');
     state.video = video;
@@ -589,17 +659,22 @@ function renderReport() {
         </div>`).join('')}
     </div>`).join('');
 
-  // Per-swing chips
-  $('swingList').innerHTML = state.measures.map((m, i) => `
-    <button class="swingChip" data-i="${i}">
-      Swing ${i + 1} · ${m.tContact.toFixed(1)}s · ${m.peakSpeed.toFixed(1)} TL/s
-    </button>`).join('');
-  document.querySelectorAll('.swingChip').forEach(b =>
-    b.addEventListener('click', () => startReplay(+b.dataset.i)));
-
-  // Charts
-  drawTimeline($('chartXfactor'), state.series.t, state.series.xFactor, 'X-Factor (°)', state.swings, state.series);
-  drawTimeline($('chartSpeed'), state.series.t, state.series.wristSpeed, 'Racquet-hand speed (TL/s)', state.swings, state.series);
+  // Per-swing chips + charts need the full frame series; summary-only
+  // restores hide that section but keep every score, finding and drill.
+  const kinSection = $('chartXfactor').closest('section');
+  if (state.series) {
+    kinSection.classList.remove('hidden');
+    $('swingList').innerHTML = state.measures.map((m, i) => `
+      <button class="swingChip" data-i="${i}">
+        Swing ${i + 1} · ${m.tContact.toFixed(1)}s · ${m.peakSpeed.toFixed(1)} TL/s
+      </button>`).join('');
+    document.querySelectorAll('.swingChip').forEach(b =>
+      b.addEventListener('click', () => startReplay(+b.dataset.i)));
+    drawTimeline($('chartXfactor'), state.series.t, state.series.xFactor, 'X-Factor (°)', state.swings, state.series);
+    drawTimeline($('chartSpeed'), state.series.t, state.series.wristSpeed, 'Racquet-hand speed (TL/s)', state.swings, state.series);
+  } else {
+    kinSection.classList.add('hidden');
+  }
 
   // Plan integration
   $('planRows').innerHTML = planIntegration(r).map(row => `
@@ -607,7 +682,31 @@ function renderReport() {
 }
 
 // ---------- ghost replay ----------
-const replay = { active: false, idx: 0, ghost: true, segs: null, anchor: null, mirror: 1, callouts: [], raf: 0 };
+const replay = { active: false, idx: 0, ghost: true, zoom: IS_MOBILE, crop: null, segs: null, anchor: null, mirror: 1, callouts: [], raf: 0 };
+
+// Square crop (normalized units — equal fractions preserve aspect) around the
+// tracked body, padded so the full swing stays in frame.
+function computeCrop(im) {
+  let minX = 1, minY = 1, maxX = 0, maxY = 0;
+  for (const p of im) {
+    if (p.x < minX) minX = p.x;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.y > maxY) maxY = p.y;
+  }
+  const f = Math.min(1, Math.max(0.32, Math.max(maxX - minX, maxY - minY) * 1.65));
+  let x = (minX + maxX) / 2 - f / 2;
+  let y = (minY + maxY) / 2 - f / 2;
+  x = Math.min(Math.max(x, 0), 1 - f);
+  y = Math.min(Math.max(y, 0), 1 - f);
+  return { x, y, f };
+}
+
+function tfPoint(p) {
+  const c = replay.crop;
+  if (!c) return p;
+  return { x: (p.x - c.x) / c.f, y: (p.y - c.y) / c.f };
+}
 
 function nearestFrame(t) {
   let best = null, bd = Infinity;
@@ -649,6 +748,8 @@ function startReplay(idx) {
   $('replayBar').classList.remove('hidden');
   $('replayLabel').textContent = `Swing ${idx + 1}`;
   $('ghostToggle').checked = replay.ghost;
+  $('zoomToggle').checked = replay.zoom;
+  replay.crop = null;
   const v = $('video');
   v.pause();
   v.playbackRate = +$('replaySpeed').value;
@@ -666,7 +767,20 @@ function replayLoop() {
   const t = v.currentTime;
   if (!v.paused && t >= m.tEnd + 0.15) { v.currentTime = m.tStart; } // loop the swing
   const f = nearestFrame(t);
-  drawOverlay(f ? f.image : null);
+
+  // Auto-zoom: glide the crop toward the tracked body
+  if (replay.zoom && f?.image) {
+    const target = computeCrop(f.image);
+    const c = replay.crop;
+    replay.crop = c
+      ? { x: c.x + (target.x - c.x) * 0.12, y: c.y + (target.y - c.y) * 0.12, f: c.f + (target.f - c.f) * 0.12 }
+      : target;
+  } else if (!replay.zoom) {
+    replay.crop = null;
+  }
+  v.style.visibility = (replay.zoom && replay.crop) ? 'hidden' : '';
+
+  drawOverlay(f ? f.image : null, replay.crop);
   const phase = phaseAt(t, m);
   $('replayScrub').value = String(Math.round(phase * 1000));
   if (replay.ghost && phase >= 0 && phase <= 1) drawGhost(phase);
@@ -683,10 +797,8 @@ function phaseAt(t, m) {
 
 function ghostToCanvas(g, canvas) {
   const a = replay.anchor, s = a.torso / replay.segs.torso;
-  return {
-    x: (a.x + replay.mirror * g.x * s) * canvas.width,
-    y: (a.y + g.y * s) * canvas.height,
-  };
+  const p = tfPoint({ x: a.x + replay.mirror * g.x * s, y: a.y + g.y * s });
+  return { x: p.x * canvas.width, y: p.y * canvas.height };
 }
 
 function drawGhost(phase) {
@@ -749,6 +861,10 @@ function wireReplayBar() {
   });
   $('replaySpeed').addEventListener('change', () => { v.playbackRate = +$('replaySpeed').value; });
   $('ghostToggle').addEventListener('change', e => { replay.ghost = e.target.checked; });
+  $('zoomToggle').addEventListener('change', e => {
+    replay.zoom = e.target.checked;
+    if (!replay.zoom) { replay.crop = null; $('video').style.visibility = ''; }
+  });
   $('replayScrub').addEventListener('input', e => {
     const m = state.measures[replay.idx];
     if (!m) return;
@@ -760,9 +876,11 @@ function wireReplayBar() {
   });
   $('replayClose').addEventListener('click', () => {
     replay.active = false;
+    replay.crop = null;
     cancelAnimationFrame(replay.raf);
     v.pause();
     v.playbackRate = 1;
+    v.style.visibility = '';
     $('replayBar').classList.add('hidden');
     const canvas = $('overlay');
     canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
@@ -897,6 +1015,19 @@ renderHistory();
 if (IS_MOBILE) {
   $('dropzone').querySelector('h2').textContent = 'Tap to choose your swing video';
 }
+
+// Installable app: registers the offline cache and, on mobile browsers that
+// aren't running as an installed app yet, explains Add to Home Screen (the
+// reliable path to permanent history on iOS).
+try { navigator.serviceWorker?.register('./sw.js'); } catch {}
+const isInstalled = window.matchMedia?.('(display-mode: standalone)').matches || navigator.standalone === true;
+if (IS_MOBILE && !isInstalled && localStorage.getItem('swinglab_install_hint') !== 'dismissed') {
+  $('installHint').classList.remove('hidden');
+}
+$('installDismiss')?.addEventListener('click', () => {
+  $('installHint').classList.add('hidden');
+  try { localStorage.setItem('swinglab_install_hint', 'dismissed'); } catch {}
+});
 initModel().catch(e => setStatus('Engine failed to load: ' + e.message + ' — try a Chromium-based browser.', 'err'));
 void DIMENSIONS;
 

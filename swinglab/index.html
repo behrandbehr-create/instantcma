@@ -4,6 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SwingLab — ATP Biomechanics Coach</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="assets/icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0a0f14">
 <style>
   :root {
     --bg: #0a0f14;
@@ -226,6 +232,14 @@
     cursor: pointer; padding: 8px;
   }
   .histDel:hover { color: var(--bad); }
+
+  .installCard {
+    background: linear-gradient(160deg, rgba(64,224,178,0.1), var(--panel));
+    border: 1px solid rgba(64,224,178,0.35); border-radius: 14px;
+    padding: 16px 18px; margin-bottom: 16px; font-size: 14px;
+  }
+  .installCard p { color: var(--ink); opacity: 0.9; margin: 8px 0 12px; }
+  .installCard b { color: var(--accent); }
   .histCmpWrap {
     display: flex; align-items: center; gap: 6px; color: var(--dim); font-size: 13px;
     cursor: pointer; white-space: nowrap;
@@ -252,7 +266,7 @@
 
   @media print {
     body { background: #fff; color: #111; }
-    #stage, .actions, #dropzone, .controls, .status, .urlRow, #historySec, #replayBar, #compareSec { display: none !important; }
+    #stage, .actions, #dropzone, .controls, .status, .urlRow, #historySec, #replayBar, #compareSec, #installHint { display: none !important; }
     .card, #focusFive li, .drill, table, #aiCoach, .planCard, .scoreCard, .radarCard { border-color: #ccc; background: #fff; }
   }
 </style>
@@ -273,6 +287,14 @@
   </header>
 
   <div id="status" class="status">Booting…</div>
+
+  <div id="installHint" class="hidden">
+    <div class="installCard">
+      <strong>📲 Make SwingLab a real app</strong>
+      <p>Open this page in <b>Safari</b>, tap <b>Share</b> → <b>Add to Home Screen</b>. You'll get the SwingLab icon on your phone, and your session history becomes permanent — browsers can wipe website storage, installed apps keep it.</p>
+      <button class="btn ghost small" id="installDismiss">Got it</button>
+    </div>
+  </div>
 
   <div class="controls">
     <label>I hit with my</label>
@@ -330,6 +352,7 @@
     </select>
     <input type="range" id="replayScrub" min="0" max="1000" value="0">
     <label class="ghostLabel"><input type="checkbox" id="ghostToggle" checked> 👻 Ghost coach</label>
+    <label class="ghostLabel"><input type="checkbox" id="zoomToggle"> 🔍 Zoom to body</label>
     <button class="btn ghost small" id="replayClose">Done</button>
   </div>
 
