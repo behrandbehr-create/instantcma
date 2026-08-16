@@ -83,12 +83,58 @@ function setStatus(msg, cls = '') {
   el.className = 'status ' + cls;
 }
 
+// ---------- reading size ----------
+// One control scales every piece of coaching prose on the page at once.
+const RS_KEY = 'swinglab_read_scale';
+function applyReadScale(rs) {
+  document.documentElement.style.setProperty('--rs', String(rs));
+  document.querySelectorAll('#sizeGrp button').forEach(b =>
+    b.classList.toggle('on', b.dataset.rs === String(rs)));
+  try { localStorage.setItem(RS_KEY, String(rs)); } catch {}
+}
+function wireReadScale() {
+  let saved = 1;
+  try { saved = +localStorage.getItem(RS_KEY) || 1; } catch {}
+  applyReadScale(saved);
+  $('sizeGrp').addEventListener('click', e => {
+    const b = e.target.closest('button');
+    if (b) applyReadScale(+b.dataset.rs);
+  });
+}
+
+// ---------- player shell ----------
+// The stage, replay controls, live cues and progress bar are one unit. Showing
+// and hiding always goes through here so the video window can never be left in
+// a half-torn-down state (invisible video, stale crop, zero-height stage).
+function showPlayer(title, hint = '') {
+  $('player').classList.remove('hidden');
+  $('noReplay').classList.add('hidden');
+  $('playerTitle').textContent = title;
+  $('playerHint').textContent = hint;
+}
+function hidePlayer() {
+  $('player').classList.add('hidden');
+}
+function setPlayerTitle(title, hint = '') {
+  $('playerTitle').textContent = title;
+  $('playerHint').textContent = hint;
+}
+function showIntake(show) {
+  $('intake').classList.toggle('hidden', !show);
+}
+
 // ---------- video intake ----------
 function wireDropzone() {
   const dz = $('dropzone');
   const input = $('fileInput');
   dz.addEventListener('click', () => input.click());
-  input.addEventListener('change', () => input.files[0] && loadVideo(input.files[0]));
+  input.addEventListener('change', () => {
+    const f = input.files[0];
+    // Clear the selection so re-picking the SAME file still fires `change`
+    // (otherwise "Analyze Another Video" → choose the same clip does nothing).
+    input.value = '';
+    if (f) loadVideo(f);
+  });
   ['dragover', 'dragenter'].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.add('drag'); }));
   ['dragleave', 'drop'].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.remove('drag'); }));
   dz.addEventListener('drop', e => {
@@ -155,22 +201,58 @@ function loadVideo(file, nameOverride) {
   video.src = url;
   video.muted = true;
   video.playsInline = true;
+  let started = false;
   video.onloadedmetadata = () => {
-    $('stage').classList.remove('hidden');
-    $('dropzone').classList.add('hidden');
+    showPlayer('Tracking your body…', state.sourceName);
+    showIntake(false);
     sizeCanvas();
-    processVideo();
+    if (!started) { started = true; processVideo(); }
   };
-  video.onerror = () => setStatus('Couldn\'t decode that video on this device. iPhone .mov files often use HEVC, which desktop browsers can\'t always play — either open this site on your phone (it plays HEVC natively), or export from SwingVision as an MP4.', 'err');
+  // Some decoders report 0×0 at loadedmetadata and only fill in the real
+  // dimensions later — without this the stage would sit at a stale aspect
+  // ratio and the overlay canvas would be sized 0×0 (a blank black window).
+  video.onresize = sizeCanvas;
+  video.onloadeddata = sizeCanvas;
+  video.onerror = () => {
+    state.processing = false;
+    $('progressWrap').classList.add('hidden');
+    hidePlayer();
+    showIntake(true);
+    setStatus('Couldn\'t decode that video on this device. iPhone .mov files often use HEVC, which desktop browsers can\'t always play — either open this site on your phone (it plays HEVC natively), or export from SwingVision as an MP4.', 'err');
+  };
 }
 
+// Size the overlay to the video's real pixel grid and lock the stage to the
+// same aspect ratio, so the absolutely-positioned canvas lines up exactly with
+// the painted video and the window always reserves its own height.
 function sizeCanvas() {
   const video = $('video'), canvas = $('overlay');
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
+  const vw = video.videoWidth, vh = video.videoHeight;
+  if (!vw || !vh) return false;
+  if (canvas.width !== vw || canvas.height !== vh) {
+    canvas.width = vw;
+    canvas.height = vh;
+  }
+  // Set on #player so both the stage's aspect-ratio and the pinned card's
+  // width can read it (custom properties inherit downward).
+  $('player').style.setProperty('--ar', (vw / vh).toFixed(4));
+  return true;
+}
+
+// Canvas pixels per CSS pixel. Overlay text and strokes are authored in CSS
+// pixels and multiplied by this, so callouts stay legible on a phone instead of
+// shrinking with the video's native resolution.
+function overlayScale() {
+  const canvas = $('overlay');
+  const shown = canvas.getBoundingClientRect().width;
+  return shown > 0 ? canvas.width / shown : 1;
 }
 
 // ---------- processing ----------
+// Monotonic clock handed to MediaPipe, shared by every video analyzed in this
+// page session (the landmarker is created once and never resets its clock).
+let mpClock = 0;
+
 function fmtEta(s) {
   s = Math.round(s);
   return s >= 90 ? Math.round(s / 60) + ' min' : s + 's';
@@ -182,14 +264,13 @@ async function processVideo() {
   state.overlayFrames = [];
   state.processing = true;
   $('progressWrap').classList.remove('hidden');
+  $('stageIdle').classList.add('hidden');
   setStatus('Tracking your body frame-by-frame…');
 
   // Keep the phone screen awake — locking the screen mid-analysis kills the job
   let wakeLock = null;
   try { wakeLock = await navigator.wakeLock?.request('screen'); } catch {}
 
-  // Deterministic seek-stepping: every frame is analyzed no matter how slow
-  // the device is (a realtime-playback loop silently drops frames on slow GPUs).
   // Some containers (MediaRecorder webm, certain exports) report Infinity until
   // forced to scan: seek far past the end, then read the real duration.
   if (!isFinite(video.duration)) {
@@ -205,6 +286,7 @@ async function processVideo() {
     setStatus('Couldn\'t read the video\'s duration — re-export as MP4 and try again.', 'err');
     state.processing = false;
     $('progressWrap').classList.add('hidden');
+    showIntake(true);
     return;
   }
 
@@ -214,57 +296,100 @@ async function processVideo() {
   // re-decode from the previous keyframe on EVERY step, which turned long
   // HEVC clips into multi-hour jobs. Total time now ≈ the video's duration.
   const TARGET = IS_MOBILE ? 1 / 20 : 1 / 30; // seconds between samples
-  let lastTs = 0; // MediaPipe requires strictly monotonically increasing integer timestamps
+  // MediaPipe requires strictly increasing timestamps for the LIFETIME of the
+  // landmarker, not per video. Restarting at 0 for a second clip made every
+  // detectForVideo call throw ("timestamp mismatch"), so the whole second
+  // analysis came back untracked. Offset each pass past the previous one.
+  const tsBase = mpClock + 1000;
   let nextSample = 0;
+  let lastProgress = Date.now();
   video.muted = true;
   video.playbackRate = 1;
   video.currentTime = 0;
   setStatus('Tracking your body — one pass through the video…');
   await video.play().catch(() => {});
 
+  const sample = t => {
+    if (t < nextSample) return;
+    nextSample = t + TARGET;
+    lastProgress = Date.now();
+    try {
+      mpClock = Math.max(mpClock + 1, tsBase + Math.round(t * 1000));
+      const res = state.landmarker.detectForVideo(video, mpClock);
+      const has = res.landmarks && res.landmarks.length > 0;
+      state.frames.push({
+        t,
+        world: has ? res.worldLandmarks[0] : null,
+        image: has ? res.landmarks[0] : null,
+      });
+      drawOverlay(has ? res.landmarks[0] : null);
+    } catch {
+      state.frames.push({ t, world: null, image: null });
+    }
+    const p = Math.min(100, (t / duration) * 100);
+    $('progressBar').style.width = p + '%';
+    $('progressPct').textContent = `Analyzing mechanics… ${Math.round(p)}% · ~${fmtEta(Math.max(0, duration - t))} left`;
+  };
+
   await new Promise(resolve => {
     let settled = false;
-    const finish = () => { if (!settled) { settled = true; resolve(); } };
-    if (!('requestVideoFrameCallback' in HTMLVideoElement.prototype)) return finish();
-    const onFrame = (_now, meta) => {
-      if (!state.processing) return finish();
-      const t = meta.mediaTime;
-      if (t >= nextSample) {
-        nextSample = t + TARGET;
-        try {
-          lastTs = Math.max(lastTs + 1, Math.round(t * 1000));
-          const res = state.landmarker.detectForVideo(video, lastTs);
-          const has = res.landmarks && res.landmarks.length > 0;
-          state.frames.push({
-            t,
-            world: has ? res.worldLandmarks[0] : null,
-            image: has ? res.landmarks[0] : null,
-          });
-          drawOverlay(has ? res.landmarks[0] : null);
-        } catch (e) {
-          state.frames.push({ t, world: null, image: null });
-        }
-        const p = Math.min(100, (t / duration) * 100);
-        $('progressBar').style.width = p + '%';
-        $('progressPct').textContent = `Analyzing mechanics… ${Math.round(p)}% · ~${fmtEta(Math.max(0, duration - t))} left`;
-      }
-      if (video.ended) return finish();
-      video.requestVideoFrameCallback(onFrame);
+    let watchdog = 0;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearInterval(watchdog);
+      resolve();
     };
-    video.requestVideoFrameCallback(onFrame);
+
+    // Two samplers, deliberately. requestVideoFrameCallback gives an exact
+    // presentation time and is preferred — but it is absent in some browsers
+    // and starves in others (headless/embedded webviews, backgrounded tabs),
+    // which used to end the pass with a near-empty frame list and a report
+    // built from nothing. The rAF loop reads currentTime and always runs.
+    // `sample()` gates on nextSample, so whichever fires first wins and the
+    // other is a no-op — never a duplicate frame.
+    if ('requestVideoFrameCallback' in HTMLVideoElement.prototype) {
+      const onFrame = (_now, meta) => {
+        if (!state.processing || settled) return;
+        sample(meta.mediaTime);
+        if (video.ended) return finish();
+        video.requestVideoFrameCallback(onFrame);
+      };
+      video.requestVideoFrameCallback(onFrame);
+    }
+    const loop = () => {
+      if (!state.processing || settled) return finish();
+      sizeCanvas();
+      sample(video.currentTime);
+      if (video.ended) return finish();
+      requestAnimationFrame(loop);
+    };
+    requestAnimationFrame(loop);
+
     video.addEventListener('ended', finish, { once: true });
+    // Stalled decode (backgrounded tab, corrupt tail) — stop instead of hanging
+    // forever on a progress bar that never moves.
+    watchdog = setInterval(() => {
+      if (Date.now() - lastProgress > 20000) finish();
+    }, 2000);
   });
 
   video.pause();
   try { wakeLock?.release(); } catch {}
   state.processing = false;
   $('progressWrap').classList.add('hidden');
+
+  // The pass runs at playback speed, so a device whose pose model is slower
+  // than real time samples fewer frames than asked for. Record it — a sparse
+  // pass still produces numbers, and the user deserves to know they're coarse.
+  state.sampleRate = { achieved: state.frames.length / duration, wanted: 1 / TARGET };
   analyze();
 }
 
 function drawOverlay(imageLandmarks, crop = null) {
   const canvas = $('overlay');
   const ctx = canvas.getContext('2d');
+  if (!canvas.width || !canvas.height) return;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   if (crop) {
     const video = $('video');
@@ -275,19 +400,20 @@ function drawOverlay(imageLandmarks, crop = null) {
     }
   }
   if (!imageLandmarks) return;
+  const s = overlayScale();
   const pts = crop ? imageLandmarks.map(tfPoint) : imageLandmarks;
   const du = new DrawingUtils(ctx);
   du.drawConnectors(pts, PoseLandmarker.POSE_CONNECTIONS,
-    { color: 'rgba(64,224,178,0.9)', lineWidth: Math.max(2, canvas.width / 400) });
+    { color: 'rgba(64,224,178,0.9)', lineWidth: Math.max(2, 2.6 * s) });
   du.drawLandmarks(pts,
-    { color: '#e8fff7', radius: Math.max(2, canvas.width / 500), lineWidth: 1 });
+    { color: '#e8fff7', radius: Math.max(1.5, 1.8 * s), lineWidth: 1 });
   // Emphasize the kinetic-chain joints
   const key = [LM.L_HIP, LM.R_HIP, LM.L_SHOULDER, LM.R_SHOULDER];
   ctx.fillStyle = '#ffb86b';
   for (const i of key) {
     const p = pts[i];
     ctx.beginPath();
-    ctx.arc(p.x * canvas.width, p.y * canvas.height, Math.max(3, canvas.width / 300), 0, Math.PI * 2);
+    ctx.arc(p.x * canvas.width, p.y * canvas.height, Math.max(3, 3.4 * s), 0, Math.PI * 2);
     ctx.fill();
   }
 }
@@ -298,7 +424,8 @@ function analyze(opts = {}) {
   const tracked = state.frames.filter(f => f.world).length;
   if (tracked < 30) {
     setStatus(`Only ${tracked} frames had a trackable player. SwingVision wide-angle exports work best — make sure the full body is visible.`, 'err');
-    $('dropzone').classList.remove('hidden');
+    showIntake(true);
+    setPlayerTitle('No player tracked', 'Try a clip where the full body is in frame');
     return;
   }
   const handedness = $('handedness').value;
@@ -308,6 +435,8 @@ function analyze(opts = {}) {
   state.swings = detectSwings(state.series);
   if (!state.swings.length) {
     setStatus('No clear swings detected — the clip may be too zoomed out or the player too small in frame. Try a rally clip where you fill more of the frame.', 'err');
+    showIntake(true);
+    setPlayerTitle('No swings detected', 'Try a rally clip where you fill more of the frame');
     return;
   }
   state.measures = state.swings.map(s => measureSwing(state.series, s, handedness));
@@ -316,8 +445,33 @@ function analyze(opts = {}) {
 
   renderReport();
   fetchAICoach(agg, state.report);
-  setStatus(`Analysis complete — ${state.swings.length} swing${state.swings.length > 1 ? 's' : ''} detected and measured.`, 'ok');
+  const sr = state.sampleRate;
+  const coarse = sr && sr.achieved < sr.wanted * 0.5
+    ? ` Heads-up: this device only managed about ${sr.achieved < 10 ? sr.achieved.toFixed(1) : sr.achieved.toFixed(0)} frames per second of tracking (target ${Math.round(sr.wanted)}), so the timings below are coarser than usual — treat the millisecond numbers as approximate.`
+    : '';
+  setStatus(`Analysis complete — ${state.swings.length} swing${state.swings.length > 1 ? 's' : ''} detected and measured.${coarse}`,
+    coarse ? '' : 'ok');
+
+  // Park the video on the first swing with its skeleton drawn, so the window
+  // shows something meaningful instead of the last frame of the clip.
+  parkOnFirstSwing();
   if (save) persistSession(agg);
+}
+
+// Leave the player showing the first detected swing, ready to replay.
+function parkOnFirstSwing() {
+  const v = $('video');
+  const m = state.measures[0];
+  if (!v || !state.videoBlob || !m) return;
+  setPlayerTitle('Ready to replay', `${state.measures.length} swing${state.measures.length === 1 ? '' : 's'} · pick one below`);
+  $('stageIdle').classList.remove('hidden');
+  const draw = () => {
+    v.removeEventListener('seeked', draw);
+    const f = nearestFrame(v.currentTime);
+    drawOverlay(f ? f.image : null);
+  };
+  v.addEventListener('seeked', draw);
+  try { v.currentTime = m.tContact; } catch {}
 }
 
 // ---------- history ----------
@@ -374,7 +528,7 @@ async function renderHistory() {
   const sec = $('historySec');
   if (!all.length) { sec.classList.add('hidden'); return; }
   sec.classList.remove('hidden');
-  $('historyList').innerHTML = all.map((s, i) => `
+  $('historyList').innerHTML = all.map(s => `
     <div class="histCard" data-id="${s.id ?? ''}" data-date="${s.date}">
       <div class="histScore">${s.overall ?? '–'}</div>
       <div class="histMeta">
@@ -412,15 +566,18 @@ async function renderHistory() {
 function restoreSummary(date) {
   const s = loadTrend().find(t => t.date === date);
   if (!s) return;
+  resetReplay();
   state.frames = [];
   state.series = null;
   state.swings = [];
   state.measures = s.measures || [];
   state.videoBlob = null;
   state.sourceName = s.name;
+  state.sampleRate = null; // belongs to the pass that produced it, not to a reload
   state.report = buildReport(s.agg);
-  $('dropzone').classList.add('hidden');
-  $('stage').classList.add('hidden');
+  showIntake(false);
+  hidePlayer();
+  $('noReplay').classList.remove('hidden');
   renderReport();
   setStatus(`Loaded saved report from ${new Date(date).toLocaleDateString()} — replay isn't available for summary-only sessions.`, 'ok');
   window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -478,7 +635,7 @@ function drawRadarCompare(canvas, dimsA, dimsBById, labelA, labelB) {
   const n = dimsA.length;
   ctx.strokeStyle = 'rgba(255,255,255,0.12)';
   ctx.fillStyle = 'rgba(255,255,255,0.5)';
-  ctx.font = `${Math.round(W / 48)}px system-ui`;
+  ctx.font = `${Math.round(W / 44)}px system-ui`;
   for (let ring = 1; ring <= 4; ring++) {
     ctx.beginPath();
     for (let i = 0; i <= n; i++) {
@@ -508,20 +665,32 @@ function drawRadarCompare(canvas, dimsA, dimsBById, labelA, labelB) {
   };
   poly(dimsA.map(d => d.score), 'rgba(150,170,190,0.9)', 'rgba(150,170,190,0.12)');
   poly(dimsA.map(d => dimsBById[d.id] ? dimsBById[d.id].score : 0), 'rgba(64,224,178,0.95)', 'rgba(64,224,178,0.2)');
-  ctx.font = `${Math.round(W / 44)}px system-ui`;
+  ctx.font = `${Math.round(W / 40)}px system-ui`;
   ctx.textAlign = 'left';
   ctx.fillStyle = 'rgba(150,170,190,0.95)';
-  ctx.fillText('— ' + labelA, 16, H - 40);
+  ctx.fillText('— ' + labelA, 16, H - 44);
   ctx.fillStyle = 'rgba(64,224,178,0.95)';
   ctx.fillText('— ' + labelB, 16, H - 14);
 }
 
+// Tear the replay down completely. Every field the loop touches gets reset —
+// in particular the video's inline visibility, which the zoom-to-body mode
+// turns off. Leaving that behind is what used to make the video window vanish
+// (a black stage with a floating skeleton) after loading a second clip.
 function resetReplay() {
   replay.active = false;
   replay.segs = null;
+  replay.crop = null;
+  replay.callouts = [];
   cancelAnimationFrame(replay.raf);
-  const bar = $('replayBar');
-  if (bar) bar.classList.add('hidden');
+  const v = $('video');
+  if (v) { try { v.pause(); } catch {} v.playbackRate = 1; v.style.visibility = ''; }
+  $('player').classList.remove('pinned', 'replaying');
+  $('replayBar').classList.add('hidden');
+  $('replayCoach').classList.add('hidden');
+  $('stageIdle').classList.add('hidden');
+  lastCueKey = '';
+  document.querySelectorAll('.swingChip.on').forEach(c => c.classList.remove('on'));
 }
 
 async function restoreSession(id) {
@@ -531,7 +700,8 @@ async function restoreSession(id) {
   resetReplay();
   state.sourceName = s.name;
   state.videoBlob = s.videoBlob || null;
-  $('dropzone').classList.add('hidden');
+  state.sampleRate = null; // belongs to the pass that produced it, not to a reload
+  showIntake(false);
 
   if (!s.frames || !s.frames.length) {
     // Compact record: rebuild the report from stored aggregates
@@ -540,7 +710,8 @@ async function restoreSession(id) {
     state.swings = [];
     state.measures = s.measures || [];
     state.report = buildReport(s.agg);
-    $('stage').classList.add('hidden');
+    hidePlayer();
+    $('noReplay').classList.remove('hidden');
     renderReport();
     setStatus(`Loaded saved report from ${new Date(s.date).toLocaleDateString()}.`, 'ok');
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -554,11 +725,13 @@ async function restoreSession(id) {
     video.src = URL.createObjectURL(s.videoBlob);
     video.muted = true;
     video.playsInline = true;
+    video.onresize = sizeCanvas;
     await new Promise(r => { video.onloadedmetadata = r; });
-    $('stage').classList.remove('hidden');
+    showPlayer('Saved session', state.sourceName);
     sizeCanvas();
   } else {
-    $('stage').classList.add('hidden');
+    hidePlayer();
+    $('noReplay').classList.remove('hidden');
   }
   analyze({ save: false });
   window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -588,12 +761,12 @@ function drawTrend(canvas, sessions) {
   pts.forEach((s, i) => {
     ctx.beginPath(); ctx.arc(X(i), Y(s.overall), 6, 0, Math.PI * 2); ctx.fill();
   });
-  ctx.fillStyle = 'rgba(255,255,255,0.7)';
-  ctx.font = `${Math.round(W / 55)}px system-ui`;
+  ctx.fillStyle = 'rgba(255,255,255,0.75)';
+  ctx.font = `${Math.round(W / 48)}px system-ui`;
   ctx.textAlign = 'center';
   pts.forEach((s, i) => ctx.fillText(String(s.overall), X(i), Y(s.overall) - 14));
   ctx.textAlign = 'left';
-  ctx.fillText('Session score over time', pad, 24);
+  ctx.fillText('Session score over time', pad, 26);
 }
 
 function escapeHtml(s) {
@@ -632,7 +805,7 @@ function renderReport() {
   $('focusFive').innerHTML = r.focusFive.map((d, i) => `
     <li>
       <span class="fRank">${i + 1}</span>
-      <div><strong>${d.label}</strong> — score ${Math.round(d.score)}/100
+      <div><strong>${d.label}</strong> <span class="fScore">— score ${Math.round(d.score)}/100</span>
       <div class="fDetail">${d.finding}</div></div>
     </li>`).join('');
 
@@ -727,6 +900,7 @@ function startReplay(idx) {
   replay.idx = idx;
   replay.segs = replay.segs || measureSegments(state.frames);
   replay.callouts = buildCallouts(m);
+  lastCueKey = '';
 
   // Anchor the ghost at the player's median hip position across the swing,
   // scaled by their on-screen torso length; mirror to match swing direction.
@@ -745,17 +919,30 @@ function startReplay(idx) {
   const WR = R ? LM.R_WRIST : LM.L_WRIST;
   replay.mirror = (fc?.image && fs?.image && fc.image[WR].x < fs.image[WR].x) ? -1 : 1;
 
+  // Pin the player to the top of the viewport for the duration of the replay,
+  // so it stays on screen while the cues and findings are read underneath it.
+  $('player').classList.add('pinned', 'replaying');
+  setPlayerTitle(`Swing ${idx + 1} replay`, 'Looping · pinned while you read');
   $('replayBar').classList.remove('hidden');
+  $('replayCoach').classList.remove('hidden');
+  $('stageIdle').classList.add('hidden');
   $('replayLabel').textContent = `Swing ${idx + 1}`;
   $('ghostToggle').checked = replay.ghost;
   $('zoomToggle').checked = replay.zoom;
+  document.querySelectorAll('.swingChip').forEach(c =>
+    c.classList.toggle('on', +c.dataset.i === idx));
+
   replay.crop = null;
   const v = $('video');
   v.pause();
+  v.style.visibility = '';
   v.playbackRate = +$('replaySpeed').value;
   v.currentTime = m.tStart;
-  v.play();
-  $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  v.play().catch(() => {});
+  // The sticky player is already on screen if the page is scrolled past it;
+  // only scroll when it's genuinely out of view above the fold.
+  const box = $('player').getBoundingClientRect();
+  if (box.bottom < 0) $('player').scrollIntoView({ behavior: 'smooth', block: 'start' });
   cancelAnimationFrame(replay.raf);
   replayLoop();
 }
@@ -764,6 +951,7 @@ function replayLoop() {
   if (!replay.active) return;
   const v = $('video');
   const m = state.measures[replay.idx];
+  if (!m) return;
   const t = v.currentTime;
   if (!v.paused && t >= m.tEnd + 0.15) { v.currentTime = m.tStart; } // loop the swing
   const f = nearestFrame(t);
@@ -778,12 +966,15 @@ function replayLoop() {
   } else if (!replay.zoom) {
     replay.crop = null;
   }
+  // When zoomed, the canvas paints the cropped video itself, so the element
+  // underneath is hidden. Anything that ends the replay must put this back.
   v.style.visibility = (replay.zoom && replay.crop) ? 'hidden' : '';
 
   drawOverlay(f ? f.image : null, replay.crop);
   const phase = phaseAt(t, m);
   $('replayScrub').value = String(Math.round(phase * 1000));
   if (replay.ghost && phase >= 0 && phase <= 1) drawGhost(phase);
+  updateCoachPanel(phase);
   replay.raf = requestAnimationFrame(replayLoop);
 }
 
@@ -793,6 +984,34 @@ function phaseAt(t, m) {
   if (t >= m.tEnd) return 1;
   if (t <= m.tContact) return (t - m.tStart) / (m.tContact - m.tStart) * GHOST_CONTACT_PHASE;
   return GHOST_CONTACT_PHASE + (t - m.tContact) / (m.tEnd - m.tContact) * (1 - GHOST_CONTACT_PHASE);
+}
+
+// Named swing phases, keyed to the ghost's own timeline.
+const PHASES = [
+  [0.42, 'Unit turn & load'],
+  [0.55, 'Transition — hips fire'],
+  [GHOST_CONTACT_PHASE, 'Drive to contact'],
+  [0.80, 'Contact'],
+  [2, 'Extension & finish'],
+];
+function phaseName(p) {
+  for (const [to, name] of PHASES) if (p <= to) return name;
+  return 'Finish';
+}
+
+// The cues also live outside the canvas, in real text at the reader's chosen
+// size — the on-video callouts are small by necessity, this panel isn't.
+let lastCueKey = '';
+function updateCoachPanel(phase) {
+  const active = replay.callouts.filter(c => phase >= c.from && phase <= c.to);
+  const name = phaseName(phase);
+  const key = name + '|' + active.map(c => c.text).join('|');
+  if (key === lastCueKey) return;
+  lastCueKey = key;
+  $('replayPhase').textContent = name;
+  $('replayCues').innerHTML = active.length
+    ? active.map(c => `<li>${escapeHtml(c.text)}</li>`).join('')
+    : '<li class="clean">This phase tracks the pro pattern — keep it</li>';
 }
 
 function ghostToCanvas(g, canvas) {
@@ -805,7 +1024,8 @@ function drawGhost(phase) {
   const canvas = $('overlay');
   const ctx = canvas.getContext('2d');
   const pose = ghostPoseAt(phase, replay.segs);
-  const lw = Math.max(2.5, canvas.width / 350);
+  const s = overlayScale();
+  const lw = Math.max(2.5, 3 * s);
 
   ctx.save();
   ctx.shadowColor = 'rgba(255,200,90,0.9)';
@@ -823,8 +1043,11 @@ function drawGhost(phase) {
   ctx.stroke();
   ctx.restore();
 
-  // Deviation callouts (max 2 at a time)
+  // Deviation callouts (max 2 at a time). Sized in CSS pixels so they read the
+  // same on a 4K export and a phone screen.
   const active = replay.callouts.filter(c => phase >= c.from && phase <= c.to).slice(0, 2);
+  const fs = 16 * s;
+  const pad = 9 * s;
   active.forEach((c, i) => {
     const p = ghostToCanvas(pose[c.joint], canvas);
     ctx.save();
@@ -833,22 +1056,27 @@ function drawGhost(phase) {
     ctx.beginPath();
     ctx.arc(p.x, p.y, lw * 3.6, 0, Math.PI * 2);
     ctx.stroke();
-    const fs = Math.max(13, canvas.width / 60);
-    ctx.font = `600 ${fs}px system-ui`;
+    ctx.font = `700 ${fs}px system-ui, sans-serif`;
     const label = c.text;
     const tw = ctx.measureText(label).width;
-    let lx = Math.min(Math.max(p.x - tw / 2, 10), canvas.width - tw - 22);
-    const ly = 14 + i * (fs + 22);
+    const boxW = tw + pad * 2;
+    const boxH = fs + pad * 1.4;
+    const lx = Math.min(Math.max(p.x - boxW / 2, 8 * s), Math.max(8 * s, canvas.width - boxW - 8 * s));
+    const ly = 10 * s + i * (boxH + 10 * s);
     ctx.beginPath();
     ctx.moveTo(p.x, p.y - lw * 3.6);
-    ctx.lineTo(lx + tw / 2 + 6, ly + fs + 10);
+    ctx.lineTo(lx + boxW / 2, ly + boxH);
     ctx.stroke();
-    ctx.fillStyle = 'rgba(20,8,10,0.82)';
+    ctx.fillStyle = 'rgba(20,8,10,0.88)';
     ctx.beginPath();
-    ctx.roundRect(lx - 8, ly, tw + 16, fs + 12, 8);
+    ctx.roundRect(lx, ly, boxW, boxH, 9 * s);
     ctx.fill();
+    ctx.strokeStyle = 'rgba(255,90,110,0.55)';
+    ctx.lineWidth = Math.max(1, s);
+    ctx.stroke();
     ctx.fillStyle = '#ff8296';
-    ctx.fillText(label, lx, ly + fs + 2);
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, lx + pad, ly + boxH / 2);
     ctx.restore();
   });
 }
@@ -856,14 +1084,14 @@ function drawGhost(phase) {
 function wireReplayBar() {
   const v = $('video');
   $('replayPlay').addEventListener('click', () => {
-    if (v.paused) { v.playbackRate = +$('replaySpeed').value; v.play(); }
+    if (v.paused) { v.playbackRate = +$('replaySpeed').value; v.play().catch(() => {}); }
     else v.pause();
   });
   $('replaySpeed').addEventListener('change', () => { v.playbackRate = +$('replaySpeed').value; });
   $('ghostToggle').addEventListener('change', e => { replay.ghost = e.target.checked; });
   $('zoomToggle').addEventListener('change', e => {
     replay.zoom = e.target.checked;
-    if (!replay.zoom) { replay.crop = null; $('video').style.visibility = ''; }
+    if (!replay.zoom) { replay.crop = null; v.style.visibility = ''; }
   });
   $('replayScrub').addEventListener('input', e => {
     const m = state.measures[replay.idx];
@@ -875,15 +1103,12 @@ function wireReplayBar() {
       : m.tContact + ((ph - GHOST_CONTACT_PHASE) / (1 - GHOST_CONTACT_PHASE)) * (m.tEnd - m.tContact);
   });
   $('replayClose').addEventListener('click', () => {
-    replay.active = false;
-    replay.crop = null;
-    cancelAnimationFrame(replay.raf);
-    v.pause();
-    v.playbackRate = 1;
-    v.style.visibility = '';
-    $('replayBar').classList.add('hidden');
+    resetReplay();
     const canvas = $('overlay');
-    canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+    if (canvas.width && canvas.height) {
+      canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+    }
+    parkOnFirstSwing();
   });
 }
 
@@ -896,8 +1121,8 @@ function drawRadar(canvas, dims) {
   const cx = W / 2, cy = H / 2, R = Math.min(W, H) * 0.34;
   const n = dims.length;
   ctx.strokeStyle = 'rgba(255,255,255,0.12)';
-  ctx.fillStyle = 'rgba(255,255,255,0.5)';
-  ctx.font = `${Math.round(W / 46)}px system-ui`;
+  ctx.fillStyle = 'rgba(255,255,255,0.55)';
+  ctx.font = `${Math.round(W / 42)}px system-ui`;
   for (let ring = 1; ring <= 4; ring++) {
     ctx.beginPath();
     for (let i = 0; i <= n; i++) {
@@ -911,7 +1136,7 @@ function drawRadar(canvas, dims) {
   dims.forEach((d, i) => {
     const a = (i / n) * Math.PI * 2 - Math.PI / 2;
     ctx.textAlign = Math.cos(a) > 0.3 ? 'left' : Math.cos(a) < -0.3 ? 'right' : 'center';
-    ctx.fillText(d.label.split(' & ')[0], cx + Math.cos(a) * (R + 14), cy + Math.sin(a) * (R + 14) + 5);
+    ctx.fillText(d.label.split(' & ')[0], cx + Math.cos(a) * (R + 16), cy + Math.sin(a) * (R + 16) + 5);
   });
   ctx.beginPath();
   dims.forEach((d, i) => {
@@ -962,10 +1187,10 @@ function drawTimeline(canvas, t, series, label, swings, allSeries) {
   ctx.strokeStyle = 'rgba(64,224,178,0.95)';
   ctx.lineWidth = 2.5;
   ctx.stroke();
-  ctx.fillStyle = 'rgba(255,255,255,0.65)';
-  ctx.font = `${Math.round(W / 60)}px system-ui`;
+  ctx.fillStyle = 'rgba(255,255,255,0.7)';
+  ctx.font = `${Math.round(W / 52)}px system-ui`;
   ctx.textAlign = 'left';
-  ctx.fillText(label, pad, 24);
+  ctx.fillText(label, pad, 26);
   void allSeries;
 }
 
@@ -999,15 +1224,23 @@ async function fetchAICoach(agg, report) {
 function wireExport() {
   $('printBtn').addEventListener('click', () => window.print());
   $('newVideoBtn').addEventListener('click', () => {
+    resetReplay();
+    const v = $('video');
+    v.removeAttribute('src');
+    v.load();
+    state.videoBlob = null;
+    state.video = null;
     $('report').classList.add('hidden');
-    $('stage').classList.add('hidden');
-    $('dropzone').classList.remove('hidden');
+    $('noReplay').classList.add('hidden');
+    hidePlayer();
+    showIntake(true);
     setStatus('Engine ready. Drop your next video.', 'ok');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   });
 }
 
 // ---------- go ----------
+wireReadScale();
 wireDropzone();
 wireExport();
 wireReplayBar();
@@ -1015,6 +1248,8 @@ renderHistory();
 if (IS_MOBILE) {
   $('dropzone').querySelector('h2').textContent = 'Tap to choose your swing video';
 }
+// Keep the overlay aligned when the layout reflows (rotation, pin/unpin).
+window.addEventListener('resize', () => { if (state.video) sizeCanvas(); });
 
 // Installable app: registers the offline cache and, on mobile browsers that
 // aren't running as an installed app yet, explains Add to Home Screen (the
