@@ -837,12 +837,22 @@ function renderReport() {
   const kinSection = $('chartXfactor').closest('section');
   if (state.series) {
     kinSection.classList.remove('hidden');
+    // A session restored without its video still has real timeline data, so
+    // the charts stay — but the chips must not look clickable when there is
+    // nothing to replay.
+    const canReplay = !!(state.video && state.videoBlob);
     $('swingList').innerHTML = state.measures.map((m, i) => `
-      <button class="swingChip" data-i="${i}">
+      <button class="swingChip" data-i="${i}"${canReplay ? '' : ' disabled'}>
         Swing ${i + 1} · ${m.tContact.toFixed(1)}s · ${m.peakSpeed.toFixed(1)} TL/s
       </button>`).join('');
-    document.querySelectorAll('.swingChip').forEach(b =>
-      b.addEventListener('click', () => startReplay(+b.dataset.i)));
+    $('swingListNote').textContent = canReplay
+      ? ''
+      : 'Replay needs the original video, which wasn\'t kept for this saved session — drop the clip in again to watch these swings back.';
+    $('swingListNote').classList.toggle('hidden', canReplay);
+    if (canReplay) {
+      document.querySelectorAll('.swingChip').forEach(b =>
+        b.addEventListener('click', () => startReplay(+b.dataset.i)));
+    }
     drawTimeline($('chartXfactor'), state.series.t, state.series.xFactor, 'X-Factor (°)', state.swings, state.series);
     drawTimeline($('chartSpeed'), state.series.t, state.series.wristSpeed, 'Racquet-hand speed (TL/s)', state.swings, state.series);
   } else {
