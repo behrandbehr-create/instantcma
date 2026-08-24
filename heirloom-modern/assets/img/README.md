@@ -10,12 +10,14 @@ so the site never looks broken while you're still shooting.
 | `full-extended.jpg` | **The money shot** | All 3 leaves in, low corner angle, chairs pulled out |
 | `closed.jpg` | Table closed | Same angle as the extended shot — makes a great before/after pair |
 | `top-down.jpg` | The book-matched top | Straight down from a step-ladder, side window light, no flash |
-| `detail-grain.jpg` | Grain close-up | Close on the centre seam where the mirror-match shows |
+| `detail-grain.jpg` | Grain close-up | Close along a leaf seam, raking light |
 | `detail-pedestal.jpg` | Pedestal | Low three-quarter angle so the sculpted form reads |
 | `detail-edge.jpg` | Edge profile | Eye level, raking light down the long edge |
 | `leaves-stacked.jpg` | The three leaves | All three stood or stacked together |
-| `makers-mark.jpg` | The stamp underneath | Buyers look for this — get it sharp and well lit |
+| `watertown-slides.jpg` | **Have it** — the Watertown slide stamp | The single most valuable photo on the page |
+| `underside-30.jpg` | **Have it** — the branded factory number 30 | Keep it sharp |
 | `room-setting.jpg` | In the room | Wide, chairs in, natural light |
+| `room-setting.jpg` | **Done** — pulled from your video | already in place |
 | `archival-factory.jpg` | *Optional* period Grand Rapids image | Only use one you actually hold rights to |
 
 ## Shooting notes
