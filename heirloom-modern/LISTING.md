@@ -42,6 +42,10 @@ and the shop failed in 1864 — then the brothers came home and started again. T
 incorporated as the Widdicomb Furniture Company in 1873, and in 1897 **John Widdicomb left to
 found his own company**, the maker of this table.
 
+From 1898 the company's furniture was drawn by one man: **Ralph H. Widdicomb**, Harry's
+nephew, who took first prize at the **1900 Paris Exposition** and stayed at the drawing board
+for fifty-three years until his retirement in 1951. This table dates to the end of that run.
+
 Through the mid-century the Widdicomb firms drew the best designers in America — T.H.
 Robsjohn-Gibbings, George Nakashima, and John Widdicomb's own chief designer J. Stuart
 Clingman, whose sculpted walnut dining furniture defines the company's 1950s look.
