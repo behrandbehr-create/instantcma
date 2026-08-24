@@ -1,0 +1,16 @@
+User-agent: *
+Allow: /
+
+# Let the AI answer engines read it too — they send buyers now.
+User-agent: GPTBot
+Allow: /
+User-agent: OAI-SearchBot
+Allow: /
+User-agent: ClaudeBot
+Allow: /
+User-agent: PerplexityBot
+Allow: /
+User-agent: Google-Extended
+Allow: /
+
+Sitemap: https://REPLACE-WITH-YOUR-DOMAIN/sitemap.xml

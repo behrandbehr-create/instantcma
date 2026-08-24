@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+        xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
+  <url>
+    <loc>https://REPLACE-WITH-YOUR-DOMAIN/</loc>
+    <lastmod>2026-08-24</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+    <image:image>
+      <image:loc>https://REPLACE-WITH-YOUR-DOMAIN/assets/img/hero.jpg</image:loc>
+      <image:title>John Widdicomb walnut double-pedestal extension dining table</image:title>
+      <image:caption>Mid-century modern book-matched walnut dining table with three leaves, Colorado Springs</image:caption>
+    </image:image>
+    <image:image>
+      <image:loc>https://REPLACE-WITH-YOUR-DOMAIN/assets/img/full-extended.jpg</image:loc>
+      <image:title>The table fully extended to 125 inches with all three leaves</image:title>
+    </image:image>
+  </url>
+</urlset>
